@@ -10,6 +10,11 @@ BROADCAST_PORT = 36500
 HELLO_INTERVAL = 2.0
 HELLO_TIMEOUT = 10.0
 
+CONTROLLER_IP = '169.232.191.223'
+CONTROLLER_PORT = 36502
+CONTROLLER_WAIT_CONNECT = 3.0
+CONTROLLER_UPDATE_INTERVAL = 3.0
+
 neighbors_interface = dict()     # IP -> interface name
 neighbors_last_refresh = dict()  # IP -> last refresh time
 
@@ -34,6 +39,7 @@ def handle_recv_msg(msg, addr):
       print "Got new!", addr
     else:
       print "Refresh!", addr
+    #TODO: Store interface over which HELLO was received
     neighbors_interface[addr] = 'eth0'
     neighbors_last_refresh[addr] = time.time()
   else:
@@ -104,12 +110,54 @@ def hello_worker(done_event):
       traceback.print_exc()
 
 
+''' Connect to SDN controller and periodically send updates '''
+def update_worker(done_event):
+  def connect():
+    try:
+      print "Attempting to connect to SDN controller..."
+      s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+      s.connect((CONTROLLER_IP, CONTROLLER_PORT))
+      print "Connected to SDN controller."
+    except socket.error, exc:
+      return None
+    return s
+
+  connected = False
+  while not done_event.is_set():
+    if not connected:
+      s = connect()
+      if not s:
+        time.sleep(CONTROLLER_WAIT_CONNECT)
+        continue
+      connected = True
+
+    # Write a test message
+    try:
+      bytes_sent = s.send("What's up")
+      if bytes_sent == 0:
+        print "Failed to send update message. Reconnecting..."
+        s.close()
+        connected = False
+    except socket.error, exc:
+      print "Update send failed. Reconnecting..."
+      s.close()
+      connected = False
+
+    if bytes_sent > 0:
+      print "Sent update message."
+      time.sleep(CONTROLLER_UPDATE_INTERVAL)
+
+
 def main():
   done_event = threading.Event()
+  threads = []
   t1 = threading.Thread(target=listen_worker, args=[done_event])
-  t1.start()
+  #t1.start()
   t2 = threading.Thread(target=hello_worker, args=[done_event])
-  t2.start()
+  #t2.start()
+  t3 = threading.Thread(target=update_worker, args=[done_event])
+  t3.start()
+  threads.extend([t3])
 
   try:
     while True:
@@ -117,7 +165,9 @@ def main():
   except KeyboardInterrupt:
     print "  Closing..."
     done_event.set()
-    t1.join()
+    for t in threads:
+      t.join()
+
 
 if __name__ == '__main__':
   main()
