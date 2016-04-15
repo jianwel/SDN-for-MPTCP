@@ -1,3 +1,5 @@
+#!/usr/bin/python
+
 import fcntl
 import select
 import socket
@@ -5,6 +7,7 @@ import struct
 import threading
 import time
 import traceback
+import argparse
 
 BROADCAST_PORT = 36500
 HELLO_INTERVAL = 2.0
@@ -50,7 +53,7 @@ def handle_recv_msg(msg, addr):
     If a neighbor isn't heard from in HELLO_TIMEOUT seconds, remove
     that address from the known list of neighbors.
 '''
-def listen_worker(done_event):
+def listen_worker(own_interface, done_event):
   # create broadcast socket
   # (taken from http://www.java2s.com/Code/Python/Network/UDPBroadcastServer.htm)
   s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -62,7 +65,7 @@ def listen_worker(done_event):
 
   print "Listening on port", BROADCAST_PORT
 
-  own_addr = str(get_ip_address("eth0"))
+  own_addr = str(get_ip_address(own_interface))
 
   while not done_event.is_set():
     try:
@@ -111,12 +114,12 @@ def hello_worker(done_event):
 
 
 ''' Connect to SDN controller and periodically send updates '''
-def update_worker(done_event):
+def update_worker(controller_addr, controller_port, done_event):
   def connect():
     try:
       print "Attempting to connect to SDN controller..."
       s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-      s.connect((CONTROLLER_IP, CONTROLLER_PORT))
+      s.connect((controller_addr, controller_port))
       print "Connected to SDN controller."
     except socket.error, exc:
       return None
@@ -149,13 +152,19 @@ def update_worker(done_event):
 
 
 def main():
+  parser = argparse.ArgumentParser()
+  parser.add_argument('-i', '--interface', default='eth0', help='broadcast interface')
+  parser.add_argument('-c', '--controller-ip', default=CONTROLLER_IP, help='controller IP address')
+  parser.add_argument('-p', '--controller-port', default=CONTROLLER_PORT, help='controller port')
+  args = parser.parse_args()
+
   done_event = threading.Event()
   threads = []
-  t1 = threading.Thread(target=listen_worker, args=[done_event])
+  t1 = threading.Thread(target=listen_worker, args=[args.interface, done_event])
   #t1.start()
   t2 = threading.Thread(target=hello_worker, args=[done_event])
   #t2.start()
-  t3 = threading.Thread(target=update_worker, args=[done_event])
+  t3 = threading.Thread(target=update_worker, args=[args.controller_ip, args.controller_port, done_event])
   t3.start()
   threads.extend([t3])
 
@@ -168,7 +177,5 @@ def main():
     for t in threads:
       t.join()
 
-
 if __name__ == '__main__':
   main()
-

@@ -1,3 +1,5 @@
+#!/usr/bin/python
+
 ''' SDN Controller -- Receives router updates, constructs a stable view of the network, and makes routing changes to improve flow throughput '''
 
 import json
@@ -5,6 +7,7 @@ import socket
 import struct
 import threading
 import time
+import argparse
 
 CONTROLLER_IP = '169.232.191.223'
 CONTROLLER_PORT = 36502
@@ -23,10 +26,10 @@ def receive_worker(conn, addr, done_event):
       print "Lost connection from", addr
       return
 
-def server_worker(done_event):
+def server_worker(controller_ip, controller_port, done_event):
   # Initialize server for receiving updates
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-  s.bind((CONTROLLER_IP, CONTROLLER_PORT))
+  s.bind((controller_ip, controller_port))
   s.settimeout(5)
   s.listen(5)
   print "Listening on port", CONTROLLER_PORT, "for incoming connections"
@@ -64,9 +67,14 @@ def server_worker(done_event):
 
 
 def main():
+  parser = argparse.ArgumentParser()
+  parser.add_argument('-c', '--controller-ip', default=CONTROLLER_IP, help='controller IP address')
+  parser.add_argument('-p', '--controller-port', default=CONTROLLER_PORT, help='controller port')
+  args = parser.parse_args()
+
   done_event = threading.Event()
   threads = []
-  t1 = threading.Thread(target=server_worker, args=[done_event])
+  t1 = threading.Thread(target=server_worker, args=[args.controller_ip, args.controller_port, done_event])
   t1.start()
   threads.extend([t1])
 
