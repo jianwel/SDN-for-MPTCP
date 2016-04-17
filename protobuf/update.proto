@@ -1,0 +1,17 @@
+package sdn;
+
+message Update {
+  enum UpdateType {
+    QUERY = 0;
+    RESPONSE = 1;
+    FLOW = 2;
+  }
+
+  required UpdateType type = 1;
+  required string data = 2;
+}
+
+message Bundle {
+  required int32 timestamp = 1;
+  repeated Update update = 2;
+}

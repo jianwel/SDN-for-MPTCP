@@ -1,5 +1,7 @@
 #!/usr/bin/python
 
+import os
+import sys
 import fcntl
 import select
 import socket
@@ -8,6 +10,9 @@ import threading
 import time
 import traceback
 import argparse
+
+sys.path.append(os.path.abspath('../protobuf'))
+import update_pb2
 
 BROADCAST_PORT = 36500
 HELLO_INTERVAL = 2.0

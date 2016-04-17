@@ -2,12 +2,17 @@
 
 ''' SDN Controller -- Receives router updates, constructs a stable view of the network, and makes routing changes to improve flow throughput '''
 
+import os
+import sys
 import json
 import socket
 import struct
 import threading
 import time
 import argparse
+
+sys.path.append(os.path.abspath('../protobuf'))
+import update_pb2
 
 CONTROLLER_IP = '169.232.191.223'
 CONTROLLER_PORT = 36502
