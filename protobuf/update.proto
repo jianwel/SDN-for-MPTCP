@@ -7,7 +7,7 @@ message Update {
     FLOW = 2;
   }
 
-  required UpdateType type = 1;
+  required UpdateType utype = 1;
   required string data = 2;
 }
 

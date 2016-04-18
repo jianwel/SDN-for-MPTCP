@@ -11,12 +11,14 @@ import time
 import traceback
 import argparse
 
-sys.path.append(os.path.abspath('../protobuf'))
+file_path = os.path.dirname(sys.argv[0])
+protobuf_path = os.path.abspath(os.path.join(file_path, '../protobuf'))
+sys.path.append(protobuf_path)
 import update_pb2
 
 BROADCAST_PORT = 36500
-HELLO_INTERVAL = 2.0
-HELLO_TIMEOUT = 10.0
+QUERY_INTERVAL = 2.0
+QUERY_TIMEOUT = 10.0
 
 CONTROLLER_IP = '169.232.191.223'
 CONTROLLER_PORT = 36502
@@ -40,22 +42,32 @@ def get_ip_address(ifname):
 
 ''' Handle received messages from neighbors
 '''
-def handle_recv_msg(msg, addr):
+def handle_recv_msg(msg, addr, s):
   msg = msg.strip()
-  if msg == "HELLO":
+  update = update_pb2.Update()
+  update.ParseFromString(msg)
+  if update.utype == update_pb2.Update.QUERY:
     if addr not in neighbors_interface:
       print "Got new!", addr
     else:
       print "Refresh!", addr
-    #TODO: Store interface over which HELLO was received
+    #TODO: Store interface over which QUERY was received
     neighbors_interface[addr] = 'eth0'
     neighbors_last_refresh[addr] = time.time()
+
+    bcast_addr = ('<broadcast>', BROADCAST_PORT)
+    response = update_pb2.Update()
+    response.utype = update_pb2.Update.RESPONSE
+    response.data = ''
+    s.sendto(response.SerializeToString(), bcast_addr)
+  elif update.utype == update_pb2.Update.RESPONSE:
+    print "Got response!", addr
   else:
-    print "Unhandled message from", addr, "-", msg
+    print "Unhandled message from", addr
 
 
-''' Listen for HELLO messages to either discover or refresh neighbors.
-    If a neighbor isn't heard from in HELLO_TIMEOUT seconds, remove
+''' Listen for QUERY messages to either discover or refresh neighbors.
+    If a neighbor isn't heard from in QUERY_TIMEOUT seconds, remove
     that address from the known list of neighbors.
 '''
 def listen_worker(own_interface, done_event):
@@ -80,13 +92,13 @@ def listen_worker(own_interface, done_event):
         msg, addr = s.recvfrom(1024)
         if addr[0] == own_addr:
           continue
-        handle_recv_msg(msg, addr)
+        handle_recv_msg(msg, addr, s)
 
       # Timeout unheard neighbors
       cur_time = time.time()
       neighbors_expired = []
       for addr, last_refresh in neighbors_last_refresh.iteritems():
-        if cur_time - last_refresh >= HELLO_TIMEOUT:
+        if cur_time - last_refresh >= QUERY_TIMEOUT:
           neighbors_expired.append(addr)
       for addr in neighbors_expired:
         print "Lost neighbor:", addr
@@ -99,7 +111,7 @@ def listen_worker(own_interface, done_event):
       traceback.print_exc()
 
 
-''' Periodically send HELLO to all neighbors.
+''' Periodically send QUERY to all neighbors.
 '''
 def hello_worker(done_event):
   s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -110,8 +122,11 @@ def hello_worker(done_event):
 
   while not done_event.is_set():
     try:
-      s.sendto("HELLO", addr)
-      time.sleep(HELLO_INTERVAL)
+      query = update_pb2.Update()
+      query.utype = update_pb2.Update.QUERY
+      query.data = str(time.time())
+      s.sendto(query.SerializeToString(), addr)
+      time.sleep(QUERY_INTERVAL)
     except (KeyboardInterrupt, SystemExit):  # needed?
       raise
     except:
@@ -166,12 +181,12 @@ def main():
   done_event = threading.Event()
   threads = []
   t1 = threading.Thread(target=listen_worker, args=[args.interface, done_event])
-  #t1.start()
+  t1.start()
   t2 = threading.Thread(target=hello_worker, args=[done_event])
-  #t2.start()
-  t3 = threading.Thread(target=update_worker, args=[args.controller_ip, args.controller_port, done_event])
-  t3.start()
-  threads.extend([t3])
+  t2.start()
+  #t3 = threading.Thread(target=update_worker, args=[args.controller_ip, args.controller_port, done_event])
+  #t3.start()
+  threads.extend([t1, t2])
 
   try:
     while True:

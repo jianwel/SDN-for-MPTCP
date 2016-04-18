@@ -13,7 +13,7 @@ from google.protobuf import descriptor_pb2
 DESCRIPTOR = _descriptor.FileDescriptor(
   name='update.proto',
   package='sdn',
-  serialized_pb='\n\x0cupdate.proto\x12\x03sdn\"m\n\x06Update\x12$\n\x04type\x18\x01 \x02(\x0e\x32\x16.sdn.Update.UpdateType\x12\x0c\n\x04\x64\x61ta\x18\x02 \x02(\t\"/\n\nUpdateType\x12\t\n\x05QUERY\x10\x00\x12\x0c\n\x08RESPONSE\x10\x01\x12\x08\n\x04\x46LOW\x10\x02\"8\n\x06\x42undle\x12\x11\n\ttimestamp\x18\x01 \x02(\x05\x12\x1b\n\x06update\x18\x02 \x03(\x0b\x32\x0b.sdn.Update')
+  serialized_pb='\n\x0cupdate.proto\x12\x03sdn\"n\n\x06Update\x12%\n\x05utype\x18\x01 \x02(\x0e\x32\x16.sdn.Update.UpdateType\x12\x0c\n\x04\x64\x61ta\x18\x02 \x02(\t\"/\n\nUpdateType\x12\t\n\x05QUERY\x10\x00\x12\x0c\n\x08RESPONSE\x10\x01\x12\x08\n\x04\x46LOW\x10\x02\"8\n\x06\x42undle\x12\x11\n\ttimestamp\x18\x01 \x02(\x05\x12\x1b\n\x06update\x18\x02 \x03(\x0b\x32\x0b.sdn.Update')
 
 
 
@@ -38,8 +38,8 @@ _UPDATE_UPDATETYPE = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   options=None,
-  serialized_start=83,
-  serialized_end=130,
+  serialized_start=84,
+  serialized_end=131,
 )
 
 
@@ -51,7 +51,7 @@ _UPDATE = _descriptor.Descriptor(
   containing_type=None,
   fields=[
     _descriptor.FieldDescriptor(
-      name='type', full_name='sdn.Update.type', index=0,
+      name='utype', full_name='sdn.Update.utype', index=0,
       number=1, type=14, cpp_type=8, label=2,
       has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
@@ -75,7 +75,7 @@ _UPDATE = _descriptor.Descriptor(
   is_extendable=False,
   extension_ranges=[],
   serialized_start=21,
-  serialized_end=130,
+  serialized_end=131,
 )
 
 
@@ -109,11 +109,11 @@ _BUNDLE = _descriptor.Descriptor(
   options=None,
   is_extendable=False,
   extension_ranges=[],
-  serialized_start=132,
-  serialized_end=188,
+  serialized_start=133,
+  serialized_end=189,
 )
 
-_UPDATE.fields_by_name['type'].enum_type = _UPDATE_UPDATETYPE
+_UPDATE.fields_by_name['utype'].enum_type = _UPDATE_UPDATETYPE
 _UPDATE_UPDATETYPE.containing_type = _UPDATE;
 _BUNDLE.fields_by_name['update'].message_type = _UPDATE
 DESCRIPTOR.message_types_by_name['Update'] = _UPDATE
