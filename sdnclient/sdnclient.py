@@ -10,6 +10,7 @@ import threading
 import time
 import traceback
 import argparse
+import json
 
 file_path = os.path.dirname(sys.argv[0])
 protobuf_path = os.path.abspath(os.path.join(file_path, '../protobuf'))
@@ -25,9 +26,8 @@ CONTROLLER_PORT = 36502
 CONTROLLER_WAIT_CONNECT = 3.0
 CONTROLLER_UPDATE_INTERVAL = 3.0
 
-neighbors_interface = dict()     # IP -> interface name
-neighbors_last_refresh = dict()  # IP -> last refresh time
-
+neighbors = {} # IP -> {interface, last_refresh, rtt, response_count}
+own_addr = ''
 
 ''' Returns the associated IP of an interface name
 '''
@@ -42,26 +42,34 @@ def get_ip_address(ifname):
 
 ''' Handle received messages from neighbors
 '''
-def handle_recv_msg(msg, addr, s):
+def handle_recv_msg(msg, addr, s, own_addr):
+  if addr not in neighbors:
+    #TODO: Store interface over which QUERY was received
+    neighbors[addr] = {'interface': 'eth0', 'last_refresh': time.time(), 'rtt': 0.0, 'response_count': 0}
+  else:
+    neighbors[addr]['last_refresh'] = time.time()
+
   msg = msg.strip()
   update = update_pb2.Update()
   update.ParseFromString(msg)
   if update.utype == update_pb2.Update.QUERY:
-    if addr not in neighbors_interface:
-      print "Got new!", addr
-    else:
-      print "Refresh!", addr
-    #TODO: Store interface over which QUERY was received
-    neighbors_interface[addr] = 'eth0'
-    neighbors_last_refresh[addr] = time.time()
+    print "Got query!", addr
 
     bcast_addr = ('<broadcast>', BROADCAST_PORT)
     response = update_pb2.Update()
     response.utype = update_pb2.Update.RESPONSE
-    response.data = ''
+    response.data = json.dumps({'timestamp': update.data, 'source': addr})
     s.sendto(response.SerializeToString(), bcast_addr)
   elif update.utype == update_pb2.Update.RESPONSE:
     print "Got response!", addr
+    obj = json.loads(update.data)
+    if obj['source'] == own_addr:
+      new_rtt = time.time() - float(obj['timestamp'])
+      prev_rtt = neighbors[addr]['rtt']
+      prev_count = neighbors[addr]['response_count']
+      neighbors[addr]['rtt'] = (new_rtt + prev_rtt * prev_count) / (prev_count + 1)
+      neighbors[addr]['response_count'] += 1
+      print neighbors[addr]['rtt']
   else:
     print "Unhandled message from", addr
 
@@ -77,8 +85,12 @@ def listen_worker(own_interface, done_event):
   s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
   s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
   s.setblocking(0)
-  #s.bind((get_ip_address("eth0"), BROADCAST_PORT))
   s.bind(('', BROADCAST_PORT))
+
+  response_s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+  response_s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+  response_s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+  response_s.setblocking(0)
 
   print "Listening on port", BROADCAST_PORT
 
@@ -89,21 +101,21 @@ def listen_worker(own_interface, done_event):
       # Read messages
       read_ready, _, _ = select.select([s], [], [], 0)
       if read_ready:
-        msg, addr = s.recvfrom(1024)
-        if addr[0] == own_addr:
+        msg, (host_addr, port) = s.recvfrom(1024)
+        if host_addr == own_addr:
           continue
-        handle_recv_msg(msg, addr, s)
+        handle_recv_msg(msg, host_addr, response_s, own_addr)
 
       # Timeout unheard neighbors
       cur_time = time.time()
-      neighbors_expired = []
-      for addr, last_refresh in neighbors_last_refresh.iteritems():
-        if cur_time - last_refresh >= QUERY_TIMEOUT:
-          neighbors_expired.append(addr)
-      for addr in neighbors_expired:
-        print "Lost neighbor:", addr
-        del neighbors_interface[addr]
-        del neighbors_last_refresh[addr]
+      addrs_expired = []
+      for addr, neighbor in neighbors.iteritems():
+        if cur_time - neighbor['last_refresh'] >= QUERY_TIMEOUT:
+          addrs_expired.append(addr)
+
+      for addr in addrs_expired:
+          print "Lost neighbor:", addr
+          del neighbors[addr]
       
     except (KeyboardInterrupt, SystemExit):  # needed?
       raise
@@ -118,14 +130,14 @@ def hello_worker(done_event):
   s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
   s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
   s.setblocking(0)
-  addr = ('<broadcast>', BROADCAST_PORT)
+  bcast_addr = ('<broadcast>', BROADCAST_PORT)
 
   while not done_event.is_set():
     try:
       query = update_pb2.Update()
       query.utype = update_pb2.Update.QUERY
-      query.data = str(time.time())
-      s.sendto(query.SerializeToString(), addr)
+      query.data = '{:.6f}'.format(time.time())
+      s.sendto(query.SerializeToString(), bcast_addr)
       time.sleep(QUERY_INTERVAL)
     except (KeyboardInterrupt, SystemExit):  # needed?
       raise
