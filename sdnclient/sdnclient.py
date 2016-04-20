@@ -69,7 +69,7 @@ def handle_recv_msg(msg, addr, s, own_addr):
       prev_count = neighbors[addr]['response_count']
       neighbors[addr]['rtt'] = (new_rtt + prev_rtt * prev_count) / (prev_count + 1)
       neighbors[addr]['response_count'] += 1
-      print neighbors[addr]['rtt']
+      print addr, ' RTT =', neighbors[addr]['rtt']
   else:
     print "Unhandled message from", addr
 
@@ -166,9 +166,17 @@ def update_worker(controller_addr, controller_port, done_event):
         continue
       connected = True
 
-    # Write a test message
+    # Construct neighbor report
+    report = update_pb2.Report()
+    report.timestamp = time.time()
+    # IP -> {interface, last_refresh, rtt, response_count}
+    for ip in neighbors:
+      neighbor = report.neighbors.add()
+      neighbor.ip = ip
+      neighbor.rtt = neighbors[ip]['rtt']
+    
     try:
-      bytes_sent = s.send("What's up")
+      bytes_sent = s.send(report.SerializeToString())
       if bytes_sent == 0:
         print "Failed to send update message. Reconnecting..."
         s.close()
@@ -179,7 +187,7 @@ def update_worker(controller_addr, controller_port, done_event):
       connected = False
 
     if bytes_sent > 0:
-      print "Sent update message."
+      print "Sent report to controller."
       time.sleep(CONTROLLER_UPDATE_INTERVAL)
 
 
@@ -196,9 +204,9 @@ def main():
   t1.start()
   t2 = threading.Thread(target=hello_worker, args=[done_event])
   t2.start()
-  #t3 = threading.Thread(target=update_worker, args=[args.controller_ip, args.controller_port, done_event])
-  #t3.start()
-  threads.extend([t1, t2])
+  t3 = threading.Thread(target=update_worker, args=[args.controller_ip, args.controller_port, done_event])
+  t3.start()
+  threads.extend([t1, t2, t3])
 
   try:
     while True:

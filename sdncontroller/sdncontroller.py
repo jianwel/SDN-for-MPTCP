@@ -14,7 +14,7 @@ import argparse
 sys.path.append(os.path.abspath('../protobuf'))
 import update_pb2
 
-CONTROLLER_IP = '169.232.191.223'
+CONTROLLER_IP = ''
 CONTROLLER_PORT = 36502
 
 
@@ -22,11 +22,22 @@ def receive_worker(conn, addr, done_event):
   # Handle a single client
   while not done_event.is_set():
     try:
-      msg = conn.recv(64)
+      msg = conn.recv(1024)
       if len(msg) == 0:
         print "Lost connection from", addr
         return
-      print "Got message from", addr, "-", msg
+      
+      report = update_pb2.Report()
+      report.ParseFromString(msg)
+      
+      print "Report from", addr, ": (time %.2f)" % (report.timestamp)
+      
+      if len(report.neighbors) > 0:
+        for neighbor in report.neighbors:
+          print '  ', neighbor.ip, 'RTT:', neighbor.rtt
+      else:
+        print "(blank)"
+      
     except socket.error, exc:
       print "Lost connection from", addr
       return
