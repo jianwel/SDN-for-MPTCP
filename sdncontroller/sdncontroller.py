@@ -11,7 +11,9 @@ import threading
 import time
 import argparse
 
-sys.path.append(os.path.abspath('../protobuf'))
+file_path = os.path.dirname(sys.argv[0])
+protobuf_path = os.path.abspath(os.path.join(file_path, '../protobuf'))
+sys.path.append(protobuf_path)
 import update_pb2
 
 CONTROLLER_IP = ''
@@ -26,18 +28,18 @@ def receive_worker(conn, addr, done_event):
       if len(msg) == 0:
         print "Lost connection from", addr
         return
-      
+
       report = update_pb2.Report()
       report.ParseFromString(msg)
-      
+
       print "Report from", addr, ": (time %.2f)" % (report.timestamp)
-      
+
       if len(report.neighbors) > 0:
         for neighbor in report.neighbors:
           print '  ', neighbor.ip, 'RTT:', neighbor.rtt
       else:
         print "(blank)"
-      
+
     except socket.error, exc:
       print "Lost connection from", addr
       return
@@ -62,12 +64,12 @@ def server_worker(controller_ip, controller_port, done_event):
         print "Accept error:", exc
         s.close()
         return
-      
+
       print "Got connection from", addr
       t = threading.Thread(target=receive_worker, args=[conn, addr, done_event])
       t.start()
       clients.append((t, conn, addr))
-    
+
     # Refresh client list for alive threads
     done_threads = []
     for t, conn, _ in clients:
@@ -76,7 +78,7 @@ def server_worker(controller_ip, controller_port, done_event):
         done_threads.append(t)
     clients = [c for c in clients if c[0] not in done_threads]
     time.sleep(0)  # yield
-  
+
   for t, conn, _ in clients:
     conn.close()
     t.join()
@@ -101,9 +103,8 @@ def main():
     print "Closing..."
     done_event.set()
     for t in threads:
-      t.join()  
+      t.join()
 
 
 if __name__ == '__main__':
   main()
-

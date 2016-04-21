@@ -49,7 +49,6 @@ def handle_recv_msg(msg, addr, s, own_addr):
   else:
     neighbors[addr]['last_refresh'] = time.time()
 
-  msg = msg.strip()
   update = update_pb2.Update()
   update.ParseFromString(msg)
   if update.utype == update_pb2.Update.QUERY:
@@ -57,14 +56,15 @@ def handle_recv_msg(msg, addr, s, own_addr):
 
     bcast_addr = ('<broadcast>', BROADCAST_PORT)
     response = update_pb2.Update()
+    response.timestamp = update.timestamp
     response.utype = update_pb2.Update.RESPONSE
-    response.data = json.dumps({'timestamp': update.data, 'source': addr})
+    response.ip = addr
     s.sendto(response.SerializeToString(), bcast_addr)
   elif update.utype == update_pb2.Update.RESPONSE:
     print "Got response!", addr
-    obj = json.loads(update.data)
-    if obj['source'] == own_addr:
-      new_rtt = time.time() - float(obj['timestamp'])
+
+    if update.ip == own_addr:
+      new_rtt = time.time() - float(update.timestamp)
       prev_rtt = neighbors[addr]['rtt']
       prev_count = neighbors[addr]['response_count']
       neighbors[addr]['rtt'] = (new_rtt + prev_rtt * prev_count) / (prev_count + 1)
@@ -116,7 +116,7 @@ def listen_worker(own_interface, done_event):
       for addr in addrs_expired:
           print "Lost neighbor:", addr
           del neighbors[addr]
-      
+
     except (KeyboardInterrupt, SystemExit):  # needed?
       raise
     except:
@@ -125,18 +125,21 @@ def listen_worker(own_interface, done_event):
 
 ''' Periodically send QUERY to all neighbors.
 '''
-def hello_worker(done_event):
+def hello_worker(own_interface, done_event):
   s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
   s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
   s.setblocking(0)
   bcast_addr = ('<broadcast>', BROADCAST_PORT)
 
+  own_addr = str(get_ip_address(own_interface))
+
   while not done_event.is_set():
     try:
       query = update_pb2.Update()
+      query.timestamp = '{:.6f}'.format(time.time())
       query.utype = update_pb2.Update.QUERY
-      query.data = '{:.6f}'.format(time.time())
+      query.ip = own_addr
       s.sendto(query.SerializeToString(), bcast_addr)
       time.sleep(QUERY_INTERVAL)
     except (KeyboardInterrupt, SystemExit):  # needed?
@@ -174,7 +177,7 @@ def update_worker(controller_addr, controller_port, done_event):
       neighbor = report.neighbors.add()
       neighbor.ip = ip
       neighbor.rtt = neighbors[ip]['rtt']
-    
+
     try:
       bytes_sent = s.send(report.SerializeToString())
       if bytes_sent == 0:
@@ -202,7 +205,7 @@ def main():
   threads = []
   t1 = threading.Thread(target=listen_worker, args=[args.interface, done_event])
   t1.start()
-  t2 = threading.Thread(target=hello_worker, args=[done_event])
+  t2 = threading.Thread(target=hello_worker, args=[args.interface, done_event])
   t2.start()
   t3 = threading.Thread(target=update_worker, args=[args.controller_ip, args.controller_port, done_event])
   t3.start()

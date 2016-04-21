@@ -4,16 +4,11 @@ message Update {
   enum UpdateType {
     QUERY = 0;
     RESPONSE = 1;
-    FLOW = 2;
   }
 
-  required UpdateType utype = 1;
-  required string data = 2;
-}
-
-message Bundle {
-  required int32 timestamp = 1;
-  repeated Update update = 2;
+  required string timestamp = 1;
+  required UpdateType utype = 2;
+  required string ip = 3;
 }
 
 message Neighbor {
