@@ -13,10 +13,10 @@ message Update {
 
 message Neighbor {
   required string ip = 1;
-  optional float rtt = 2;
+  optional string rtt = 2;
 }
 
 message Report {
-  required float timestamp = 1;
+  required string timestamp = 1;
   repeated Neighbor neighbors = 2;
 }

@@ -171,12 +171,12 @@ def update_worker(controller_addr, controller_port, done_event):
 
     # Construct neighbor report
     report = update_pb2.Report()
-    report.timestamp = time.time()
+    report.timestamp = '{:.6f}'.format(time.time())
     # IP -> {interface, last_refresh, rtt, response_count}
     for ip in neighbors:
       neighbor = report.neighbors.add()
       neighbor.ip = ip
-      neighbor.rtt = neighbors[ip]['rtt']
+      neighbor.rtt = '{:6f}'.format(neighbors[ip]['rtt'])
 
     try:
       bytes_sent = s.send(report.SerializeToString())

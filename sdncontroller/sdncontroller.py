@@ -32,7 +32,7 @@ def receive_worker(conn, addr, done_event):
       report = update_pb2.Report()
       report.ParseFromString(msg)
 
-      print "Report from", addr, ": (time %.2f)" % (report.timestamp)
+      print "Report from", addr, ": time =", report.timestamp
 
       if len(report.neighbors) > 0:
         for neighbor in report.neighbors:
