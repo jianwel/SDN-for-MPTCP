@@ -23,21 +23,41 @@ QUERY_TIMEOUT = 10.0
 
 CONTROLLER_IP = '169.232.191.223'
 CONTROLLER_PORT = 36502
+CONTROLLER_CONNECT_TIMEOUT = 10.0
 CONTROLLER_WAIT_CONNECT = 3.0
 CONTROLLER_UPDATE_INTERVAL = 3.0
+
+DEBUG_LOG = True
+DEBUG_STDOUT = False
+DEBUG_FILEPATH = "/tmp/sdnclient.txt"
 
 neighbors = {} # IP -> {interface, last_refresh, rtt, response_count}
 own_addr = ''
 
+debug_file = None
+
+
+def log(*args):
+  if DEBUG_LOG:
+    msg = ' '.join([str(a) for a in args])
+    
+    if DEBUG_STDOUT:
+      print msg
+    else:
+      global debug_file
+      if not debug_file:
+        debug_file = open(DEBUG_FILEPATH, 'w+')
+      debug_file.write(msg + '\n')
+
 ''' Returns the associated IP of an interface name
 '''
 def get_ip_address(ifname):
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    return socket.inet_ntoa(fcntl.ioctl(
-        s.fileno(),
-        0x8915,  # SIOCGIFADDR
-        struct.pack('256s', ifname[:15])
-    )[20:24])
+  s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+  return socket.inet_ntoa(fcntl.ioctl(
+      s.fileno(),
+      0x8915,  # SIOCGIFADDR
+      struct.pack('256s', ifname[:15])
+  )[20:24])
 
 
 ''' Handle received messages from neighbors
@@ -52,7 +72,7 @@ def handle_recv_msg(msg, addr, s, own_addr):
   update = update_pb2.Update()
   update.ParseFromString(msg)
   if update.utype == update_pb2.Update.QUERY:
-    print "Got query!", addr
+    log("Got query!", addr)
 
     bcast_addr = ('<broadcast>', BROADCAST_PORT)
     response = update_pb2.Update()
@@ -61,7 +81,7 @@ def handle_recv_msg(msg, addr, s, own_addr):
     response.ip = addr
     s.sendto(response.SerializeToString(), bcast_addr)
   elif update.utype == update_pb2.Update.RESPONSE:
-    print "Got response!", addr
+    log("Got response!", addr)
 
     if update.ip == own_addr:
       new_rtt = time.time() - float(update.timestamp)
@@ -69,9 +89,9 @@ def handle_recv_msg(msg, addr, s, own_addr):
       prev_count = neighbors[addr]['response_count']
       neighbors[addr]['rtt'] = (new_rtt + prev_rtt * prev_count) / (prev_count + 1)
       neighbors[addr]['response_count'] += 1
-      print addr, ' RTT =', neighbors[addr]['rtt']
+      log(addr, ' RTT =', neighbors[addr]['rtt'])
   else:
-    print "Unhandled message from", addr
+    log("Unhandled message from", addr)
 
 
 ''' Listen for QUERY messages to either discover or refresh neighbors.
@@ -92,7 +112,7 @@ def listen_worker(own_interface, done_event):
   response_s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
   response_s.setblocking(0)
 
-  print "Listening on port", BROADCAST_PORT
+  log("Listening on port", BROADCAST_PORT)
 
   own_addr = str(get_ip_address(own_interface))
 
@@ -114,7 +134,7 @@ def listen_worker(own_interface, done_event):
           addrs_expired.append(addr)
 
       for addr in addrs_expired:
-          print "Lost neighbor:", addr
+          log("Lost neighbor:", addr)
           del neighbors[addr]
 
     except (KeyboardInterrupt, SystemExit):  # needed?
@@ -152,10 +172,11 @@ def hello_worker(own_interface, done_event):
 def update_worker(controller_addr, controller_port, done_event):
   def connect():
     try:
-      print "Attempting to connect to SDN controller..."
+      log("Attempting to connect to SDN controller...")
       s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+      s.settimeout(CONTROLLER_CONNECT_TIMEOUT)
       s.connect((controller_addr, controller_port))
-      print "Connected to SDN controller."
+      log("Connected to SDN controller.")
     except socket.error, exc:
       return None
     return s
@@ -181,16 +202,16 @@ def update_worker(controller_addr, controller_port, done_event):
     try:
       bytes_sent = s.send(report.SerializeToString())
       if bytes_sent == 0:
-        print "Failed to send update message. Reconnecting..."
+        log("Failed to send update message. Reconnecting...")
         s.close()
         connected = False
     except socket.error, exc:
-      print "Update send failed. Reconnecting..."
+      log("Update send failed. Reconnecting...")
       s.close()
       connected = False
 
     if bytes_sent > 0:
-      print "Sent report to controller."
+      log("Sent report to controller.")
       time.sleep(CONTROLLER_UPDATE_INTERVAL)
 
 
@@ -219,6 +240,7 @@ def main():
     done_event.set()
     for t in threads:
       t.join()
+      
 
 if __name__ == '__main__':
   main()

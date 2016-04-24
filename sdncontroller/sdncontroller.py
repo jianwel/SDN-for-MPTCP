@@ -19,6 +19,24 @@ import update_pb2
 CONTROLLER_IP = ''
 CONTROLLER_PORT = 36502
 
+DEBUG_LOG = True
+DEBUG_STDOUT = True
+DEBUG_FILEPATH = "/tmp/sdncontroller.txt"
+
+debug_file = None
+
+
+def log(*args):
+  if DEBUG_LOG:
+    msg = ' '.join([str(a) for a in args])
+
+    if DEBUG_STDOUT:
+      print msg
+    else:
+      global debug_file
+      if not debug_file:
+        debug_file = open(DEBUG_FILEPATH, 'w+')
+      debug_file.write(msg + '\n')
 
 def receive_worker(conn, addr, done_event):
   # Handle a single client
@@ -26,22 +44,22 @@ def receive_worker(conn, addr, done_event):
     try:
       msg = conn.recv(1024)
       if len(msg) == 0:
-        print "Lost connection from", addr
+        log("Lost connection from", addr)
         return
 
       report = update_pb2.Report()
       report.ParseFromString(msg)
 
-      print "Report from", addr, ": time =", report.timestamp
+      log("Report from", addr, ": time =", report.timestamp)
 
       if len(report.neighbors) > 0:
         for neighbor in report.neighbors:
-          print '  ', neighbor.ip, 'RTT:', neighbor.rtt
+          log('  ', neighbor.ip, 'RTT:', neighbor.rtt)
       else:
-        print "(blank)"
+        log("(blank)")
 
     except socket.error, exc:
-      print "Lost connection from", addr
+      log("Lost connection from", addr)
       return
 
 def server_worker(controller_ip, controller_port, done_event):
@@ -50,7 +68,7 @@ def server_worker(controller_ip, controller_port, done_event):
   s.bind((controller_ip, controller_port))
   s.settimeout(5)
   s.listen(5)
-  print "Listening on port", CONTROLLER_PORT, "for incoming connections"
+  log("Listening on port", CONTROLLER_PORT, "for incoming connections")
 
   # Create one receive worker thread for each client
   clients = []
@@ -61,11 +79,11 @@ def server_worker(controller_ip, controller_port, done_event):
       except socket.timeout:
         continue
       except socket.error, exc:
-        print "Accept error:", exc
+        log("Accept error:", exc)
         s.close()
         return
 
-      print "Got connection from", addr
+      log("Got connection from", addr)
       t = threading.Thread(target=receive_worker, args=[conn, addr, done_event])
       t.start()
       clients.append((t, conn, addr))
@@ -104,7 +122,6 @@ def main():
     done_event.set()
     for t in threads:
       t.join()
-
 
 if __name__ == '__main__':
   main()
