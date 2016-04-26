@@ -11,6 +11,7 @@ import time
 import traceback
 import argparse
 import json
+import logging
 
 file_path = os.path.dirname(sys.argv[0])
 protobuf_path = os.path.abspath(os.path.join(file_path, '../protobuf'))
@@ -27,27 +28,10 @@ CONTROLLER_CONNECT_TIMEOUT = 10.0
 CONTROLLER_WAIT_CONNECT = 3.0
 CONTROLLER_UPDATE_INTERVAL = 3.0
 
-DEBUG_LOG = True
-DEBUG_STDOUT = False
-DEBUG_FILEPATH = "/tmp/sdnclient.txt"
+DEBUG_FILEPATH = '/tmp/sdnclient.log'
 
 neighbors = {} # IP -> {interface, last_refresh, rtt, response_count}
 own_addr = ''
-
-debug_file = None
-
-
-def log(*args):
-  if DEBUG_LOG:
-    msg = ' '.join([str(a) for a in args])
-    
-    if DEBUG_STDOUT:
-      print msg
-    else:
-      global debug_file
-      if not debug_file:
-        debug_file = open(DEBUG_FILEPATH, 'w+')
-      debug_file.write(msg + '\n')
 
 ''' Returns the associated IP of an interface name
 '''
@@ -72,7 +56,7 @@ def handle_recv_msg(msg, addr, s, own_addr):
   update = update_pb2.Update()
   update.ParseFromString(msg)
   if update.utype == update_pb2.Update.QUERY:
-    log("Got query!", addr)
+    logging.debug('Got query! {0}'.format(addr))
 
     bcast_addr = ('<broadcast>', BROADCAST_PORT)
     response = update_pb2.Update()
@@ -81,7 +65,7 @@ def handle_recv_msg(msg, addr, s, own_addr):
     response.ip = addr
     s.sendto(response.SerializeToString(), bcast_addr)
   elif update.utype == update_pb2.Update.RESPONSE:
-    log("Got response!", addr)
+    logging.debug('Got response! {0}'.format(addr))
 
     if update.ip == own_addr:
       new_rtt = time.time() - float(update.timestamp)
@@ -89,9 +73,9 @@ def handle_recv_msg(msg, addr, s, own_addr):
       prev_count = neighbors[addr]['response_count']
       neighbors[addr]['rtt'] = (new_rtt + prev_rtt * prev_count) / (prev_count + 1)
       neighbors[addr]['response_count'] += 1
-      log(addr, ' RTT =', neighbors[addr]['rtt'])
+      logging.debug('{0} RTT = {1}'.format(addr, neighbors[addr]['rtt']))
   else:
-    log("Unhandled message from", addr)
+    logging.debug('Unhandled message from {0}'.format(addr))
 
 
 ''' Listen for QUERY messages to either discover or refresh neighbors.
@@ -112,7 +96,7 @@ def listen_worker(own_interface, done_event):
   response_s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
   response_s.setblocking(0)
 
-  log("Listening on port", BROADCAST_PORT)
+  logging.debug('Listening on port {0}'.format(BROADCAST_PORT))
 
   own_addr = str(get_ip_address(own_interface))
 
@@ -134,7 +118,7 @@ def listen_worker(own_interface, done_event):
           addrs_expired.append(addr)
 
       for addr in addrs_expired:
-          log("Lost neighbor:", addr)
+          logging.debug('Lost neighbor: {0}'.format(addr))
           del neighbors[addr]
 
     except (KeyboardInterrupt, SystemExit):  # needed?
@@ -172,11 +156,11 @@ def hello_worker(own_interface, done_event):
 def update_worker(controller_addr, controller_port, done_event):
   def connect():
     try:
-      log("Attempting to connect to SDN controller...")
+      logging.debug('Attempting to connect to SDN controller...')
       s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
       s.settimeout(CONTROLLER_CONNECT_TIMEOUT)
       s.connect((controller_addr, controller_port))
-      log("Connected to SDN controller.")
+      logging.debug('Connected to SDN controller.')
     except socket.error, exc:
       return None
     return s
@@ -202,16 +186,16 @@ def update_worker(controller_addr, controller_port, done_event):
     try:
       bytes_sent = s.send(report.SerializeToString())
       if bytes_sent == 0:
-        log("Failed to send update message. Reconnecting...")
+        logging.debug('Failed to send update message. Reconnecting...')
         s.close()
         connected = False
     except socket.error, exc:
-      log("Update send failed. Reconnecting...")
+      logging.debug('Update send failed. Reconnecting...')
       s.close()
       connected = False
 
     if bytes_sent > 0:
-      log("Sent report to controller.")
+      logging.debug('Sent report to controller.')
       time.sleep(CONTROLLER_UPDATE_INTERVAL)
 
 
@@ -220,7 +204,20 @@ def main():
   parser.add_argument('-i', '--interface', default='eth0', help='broadcast interface')
   parser.add_argument('-c', '--controller-ip', default=CONTROLLER_IP, help='controller IP address')
   parser.add_argument('-p', '--controller-port', default=CONTROLLER_PORT, help='controller port')
+  parser.add_argument('-d', '--debug-file', default=DEBUG_FILEPATH, help='debug file')
+  parser.add_argument('-D', '--disable-debug', action='store_true', help='disable debug logging')
+  parser.add_argument('-P', '--print-stdout', action='store_true', help='print debug info to stdout')
   args = parser.parse_args()
+
+  if not args.disable_debug:
+    logging.basicConfig(level=logging.DEBUG, filename=args.debug_file)
+
+  if args.print_stdout:
+    rootLogger = logging.getLogger()
+    rootLogger.setLevel(logging.DEBUG)
+    streamHandler = logging.StreamHandler(sys.stdout)
+    streamHandler.setLevel(logging.DEBUG)
+    rootLogger.addHandler(streamHandler)
 
   done_event = threading.Event()
   threads = []
@@ -236,7 +233,7 @@ def main():
     while True:
       time.sleep(0.1)
   except KeyboardInterrupt:
-    print "  Closing..."
+    print '  Closing...'
     done_event.set()
     for t in threads:
       t.join()
