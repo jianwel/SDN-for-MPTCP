@@ -12,6 +12,7 @@ import traceback
 import argparse
 import json
 import logging
+import netifaces
 
 file_path = os.path.dirname(sys.argv[0])
 protobuf_path = os.path.abspath(os.path.join(file_path, '../protobuf'))
@@ -19,10 +20,12 @@ sys.path.append(protobuf_path)
 import update_pb2
 
 BROADCAST_PORT = 36500
+BROADCAST_NET_S = '10.0.0.0'
+BROADCAST_MASK_BITS = 16
 QUERY_INTERVAL = 2.0
 QUERY_TIMEOUT = 10.0
 
-CONTROLLER_IP = '169.232.191.223'
+CONTROLLER_IP = ''
 CONTROLLER_PORT = 36502
 CONTROLLER_CONNECT_TIMEOUT = 10.0
 CONTROLLER_WAIT_CONNECT = 3.0
@@ -30,75 +33,75 @@ CONTROLLER_UPDATE_INTERVAL = 3.0
 
 DEBUG_FILEPATH = '/tmp/sdnclient.log'
 
-neighbors = {} # IP -> {interface, last_refresh, rtt, response_count}
-own_addr = ''
-
-''' Returns the associated IP of an interface name
-'''
-def get_ip_address(ifname):
-  s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-  return socket.inet_ntoa(fcntl.ioctl(
-      s.fileno(),
-      0x8915,  # SIOCGIFADDR
-      struct.pack('256s', ifname[:15])
-  )[20:24])
+neighbors = {} # IP -> {last_refresh, rtt, response_count}
 
 
 ''' Handle received messages from neighbors
 '''
-def handle_recv_msg(msg, addr, s, own_addr):
-  if addr not in neighbors:
-    #TODO: Store interface over which QUERY was received
-    neighbors[addr] = {'interface': 'eth0', 'last_refresh': time.time(), 'rtt': 0.0, 'response_count': 0}
+def handle_recv_msg(msg, host_addr, own_addrs, res, bcast_ifaces):
+  if host_addr not in neighbors:
+    neighbors[host_addr] = {'last_refresh': time.time(), 'rtt': 0.0, 'response_count': 0}
   else:
-    neighbors[addr]['last_refresh'] = time.time()
+    neighbors[host_addr]['last_refresh'] = time.time()
 
   update = update_pb2.Update()
   update.ParseFromString(msg)
   if update.utype == update_pb2.Update.QUERY:
-    logging.debug('Got query! {0}'.format(addr))
+    logging.debug('Got query! {0}'.format(host_addr))
 
     bcast_addr = ('<broadcast>', BROADCAST_PORT)
     response = update_pb2.Update()
     response.timestamp = update.timestamp
     response.utype = update_pb2.Update.RESPONSE
-    response.ip = addr
-    s.sendto(response.SerializeToString(), bcast_addr)
+    for bcast_iface in bcast_ifaces:
+      response.ip = bcast_iface['ipv4']['addr']
+      bcast_addr = (bcast_iface['ipv4']['broadcast'], BROADCAST_PORT)
+      res.sendto(response.SerializeToString(), bcast_addr)
   elif update.utype == update_pb2.Update.RESPONSE:
-    logging.debug('Got response! {0}'.format(addr))
+    logging.debug('Got response! {0}'.format(host_addr))
 
-    if update.ip == own_addr:
+    if update.ip in own_addrs:
       new_rtt = time.time() - float(update.timestamp)
-      prev_rtt = neighbors[addr]['rtt']
-      prev_count = neighbors[addr]['response_count']
-      neighbors[addr]['rtt'] = (new_rtt + prev_rtt * prev_count) / (prev_count + 1)
-      neighbors[addr]['response_count'] += 1
-      logging.debug('{0} RTT = {1}'.format(addr, neighbors[addr]['rtt']))
+      prev_rtt = neighbors[host_addr]['rtt']
+      prev_count = neighbors[host_addr]['response_count']
+      neighbors[host_addr]['rtt'] = (new_rtt + prev_rtt * prev_count) / (prev_count + 1)
+      neighbors[host_addr]['response_count'] += 1
+      logging.debug('{0} RTT = {1}'.format(host_addr, neighbors[host_addr]['rtt']))
   else:
-    logging.debug('Unhandled message from {0}'.format(addr))
+    logging.debug('Unhandled message from {0}'.format(host_addr))
 
 
 ''' Listen for QUERY messages to either discover or refresh neighbors.
     If a neighbor isn't heard from in QUERY_TIMEOUT seconds, remove
     that address from the known list of neighbors.
 '''
-def listen_worker(own_interface, done_event):
-  # create broadcast socket
-  # (taken from http://www.java2s.com/Code/Python/Network/UDPBroadcastServer.htm)
+def listen_worker(done_event):
+  # http://www.java2s.com/Code/Python/Network/UDPBroadcastServer.htm
   s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
   s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
   s.setblocking(0)
   s.bind(('', BROADCAST_PORT))
 
-  response_s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-  response_s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-  response_s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-  response_s.setblocking(0)
+  res = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+  res.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+  res.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+  res.setblocking(0)
+
+  # http://stackoverflow.com/questions/819355/how-can-i-check-if-an-ip-is-in-a-network-in-python
+  own_addrs = []
+  bcast_ifaces = []
+  for iface in netifaces.interfaces():
+    ipv4 = netifaces.ifaddresses(iface)[netifaces.AF_INET][0]
+    addr_s = ipv4['addr']
+    own_addrs.append(addr_s)
+    addr = struct.unpack('>L', socket.inet_aton(addr_s))[0]
+    net = struct.unpack('>L', socket.inet_aton(BROADCAST_NET_S))[0]
+    mask = (0xffffffff << (32 - BROADCAST_MASK_BITS)) & 0xffffffff
+    if (addr & mask) == (net & mask):
+      bcast_ifaces.append({'name': iface, 'ipv4': ipv4})
 
   logging.debug('Listening on port {0}'.format(BROADCAST_PORT))
-
-  own_addr = str(get_ip_address(own_interface))
 
   while not done_event.is_set():
     try:
@@ -106,9 +109,9 @@ def listen_worker(own_interface, done_event):
       read_ready, _, _ = select.select([s], [], [], 0)
       if read_ready:
         msg, (host_addr, port) = s.recvfrom(1024)
-        if host_addr == own_addr:
+        if host_addr in own_addrs:
           continue
-        handle_recv_msg(msg, host_addr, response_s, own_addr)
+        handle_recv_msg(msg, host_addr, own_addrs, res, bcast_ifaces)
 
       # Timeout unheard neighbors
       cur_time = time.time()
@@ -129,22 +132,32 @@ def listen_worker(own_interface, done_event):
 
 ''' Periodically send QUERY to all neighbors.
 '''
-def hello_worker(own_interface, done_event):
+def query_worker(done_event):
   s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
   s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
   s.setblocking(0)
-  bcast_addr = ('<broadcast>', BROADCAST_PORT)
 
-  own_addr = str(get_ip_address(own_interface))
+  # http://stackoverflow.com/questions/819355/how-can-i-check-if-an-ip-is-in-a-network-in-python
+  bcast_ifaces = []
+  for iface in netifaces.interfaces():
+    ipv4 = netifaces.ifaddresses(iface)[netifaces.AF_INET][0]
+    addr_s = ipv4['addr']
+    addr = struct.unpack('>L', socket.inet_aton(addr_s))[0]
+    net = struct.unpack('>L', socket.inet_aton(BROADCAST_NET_S))[0]
+    mask = (0xffffffff << (32 - BROADCAST_MASK_BITS)) & 0xffffffff
+    if (addr & mask) == (net & mask):
+      bcast_ifaces.append({'name': iface, 'ipv4': ipv4})
 
   while not done_event.is_set():
     try:
       query = update_pb2.Update()
       query.timestamp = '{:.6f}'.format(time.time())
       query.utype = update_pb2.Update.QUERY
-      query.ip = own_addr
-      s.sendto(query.SerializeToString(), bcast_addr)
+      for bcast_iface in bcast_ifaces:
+        query.ip = bcast_iface['ipv4']['addr']
+        bcast_addr = (bcast_iface['ipv4']['broadcast'], BROADCAST_PORT)
+        s.sendto(query.SerializeToString(), bcast_addr)
       time.sleep(QUERY_INTERVAL)
     except (KeyboardInterrupt, SystemExit):  # needed?
       raise
@@ -177,7 +190,7 @@ def update_worker(controller_addr, controller_port, done_event):
     # Construct neighbor report
     report = update_pb2.Report()
     report.timestamp = '{:.6f}'.format(time.time())
-    # IP -> {interface, last_refresh, rtt, response_count}
+    # IP -> {last_refresh, rtt, response_count}
     for ip in neighbors:
       neighbor = report.neighbors.add()
       neighbor.ip = ip
@@ -201,7 +214,6 @@ def update_worker(controller_addr, controller_port, done_event):
 
 def main():
   parser = argparse.ArgumentParser()
-  parser.add_argument('-i', '--interface', default='eth0', help='broadcast interface')
   parser.add_argument('-c', '--controller-ip', default=CONTROLLER_IP, help='controller IP address')
   parser.add_argument('-p', '--controller-port', default=CONTROLLER_PORT, help='controller port')
   parser.add_argument('-d', '--debug-file', default=DEBUG_FILEPATH, help='debug file')
@@ -221,9 +233,9 @@ def main():
 
   done_event = threading.Event()
   threads = []
-  t1 = threading.Thread(target=listen_worker, args=[args.interface, done_event])
+  t1 = threading.Thread(target=listen_worker, args=[done_event])
   t1.start()
-  t2 = threading.Thread(target=hello_worker, args=[args.interface, done_event])
+  t2 = threading.Thread(target=query_worker, args=[done_event])
   t2.start()
   t3 = threading.Thread(target=update_worker, args=[args.controller_ip, args.controller_port, done_event])
   t3.start()
