@@ -245,7 +245,7 @@ def main():
     while True:
       time.sleep(0.1)
   except KeyboardInterrupt:
-    print '  Closing...'
+    print 'Closing...'
     done_event.set()
     for t in threads:
       t.join()

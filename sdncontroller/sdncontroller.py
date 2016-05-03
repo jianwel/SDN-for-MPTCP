@@ -10,6 +10,7 @@ import struct
 import threading
 import time
 import argparse
+import logging
 
 file_path = os.path.dirname(sys.argv[0])
 protobuf_path = os.path.abspath(os.path.join(file_path, '../protobuf'))
@@ -21,11 +22,7 @@ CONTROLLER_PORT = 36502
 
 NODE_EXPIRE_TIME = 5.0
 
-DEBUG_LOG = True
-DEBUG_STDOUT = True
 DEBUG_FILEPATH = "/tmp/sdncontroller.txt"
-
-debug_file = None
 
 
 ''' Network class defining a graph of nodes '''
@@ -34,13 +31,13 @@ class Network:
     self.nodes = []
     self.nodes_dict = {}  # IP -> Node instance
     self.nodes_lock = threading.Lock()
-    
+
   def __str__(self):
     return self.debug_print()
-    
+
   def update_node(self, ip, report):
     self.nodes_lock.acquire(True)
-    
+
     if ip in self.nodes_dict:
       node = self.nodes_dict[ip]
       node.last_update = time.time()
@@ -48,24 +45,24 @@ class Network:
       node = Node(ip, self)
       self.nodes.append(node)
       self.nodes_dict[ip] = node
-      
+
     node_neighbors = []
     if len(report.neighbors) > 0:
       for neighbor in report.neighbors:
         if neighbor.ip in self.nodes_dict:
           node_neighbors.append(self.nodes_dict[neighbor.ip])
     node.neighbors = node_neighbors
-    
+
     self.refresh_node_list()  #TODO: More efficient way of removing lost clients?
-    
+
     self.nodes_lock.release()
-  
+
   def refresh_node_list(self):
     if len(self.nodes) <= 1:
       return
-      
+
     nodes_expired = []
-    
+
     # Expire nodes that do not appear in any neighbor's list
     for node in self.nodes:
       if time.time() - node.last_update >= NODE_EXPIRE_TIME:
@@ -76,11 +73,11 @@ class Network:
             break
         if not found:
           nodes_expired.append(node)
-        
+
     for node in nodes_expired:
       self.nodes.remove(node)
       del self.nodes_dict[node.ip]
-  
+
   def debug_print(self):
     self.nodes_lock.acquire(True)
     graph = 'Network (Size ' + str(len(self.nodes)) + ')\n'
@@ -88,7 +85,7 @@ class Network:
       graph += str(node) + ' -> ' + ', '.join([str(n) for n in node.neighbors]) + '\n'
     self.nodes_lock.release()
     return graph
-  
+
 
 ''' Node class representing a client in the network '''
 class Node:
@@ -97,22 +94,10 @@ class Node:
     self.neighbors = []
     self.network = network
     self.last_update = time.time()
-    
+
   def __str__(self):
     return self.ip
 
-
-def log(*args):
-  if DEBUG_LOG:
-    msg = ' '.join([str(a) for a in args])
-
-    if DEBUG_STDOUT:
-      print msg
-    else:
-      global debug_file
-      if not debug_file:
-        debug_file = open(DEBUG_FILEPATH, 'w+')
-      debug_file.write(msg + '\n')
 
 def receive_worker(conn, addr, network, done_event):
   # Handle a single client
@@ -120,26 +105,18 @@ def receive_worker(conn, addr, network, done_event):
     try:
       msg = conn.recv(1024)
       if len(msg) == 0:
-        log("Lost connection from", addr)
+        logging.debug('Lost connection from {0}'.format(addr))
         return
 
       report = update_pb2.Report()
       report.ParseFromString(msg)
 
-      log("Report from", addr, ": time =", report.timestamp)
-      
+      logging.debug('Report from {0}: time = {1}'.format(addr, report.timestamp))
+
       network.update_node(addr[0], report)
 
-      '''
-      if len(report.neighbors) > 0:
-        for neighbor in report.neighbors:
-          log('  ', neighbor.ip, 'RTT:', neighbor.rtt)
-      else:
-        log("(blank)")
-      '''
-
     except socket.error, exc:
-      log("Lost connection from", addr)
+      logging.debug("Lost connection from", addr)
       return
 
 def server_worker(controller_ip, controller_port, network, done_event):
@@ -148,7 +125,7 @@ def server_worker(controller_ip, controller_port, network, done_event):
   s.bind((controller_ip, controller_port))
   s.settimeout(5)
   s.listen(5)
-  log("Listening on port", CONTROLLER_PORT, "for incoming connections")
+  logging.debug('Listening on port {0} for incoming connections'.format(controller_port))
 
   # Create one receive worker thread for each client
   clients = []
@@ -159,11 +136,11 @@ def server_worker(controller_ip, controller_port, network, done_event):
       except socket.timeout:
         continue
       except socket.error, exc:
-        log("Accept error:", exc)
+        logging.debug('Accept error: {0}'.format(exc))
         s.close()
         return
 
-      log("Got connection from", addr)
+      logging.debug('Got connection from {0}'.format(addr))
       t = threading.Thread(target=receive_worker, args=[conn, addr, network, done_event])
       t.start()
       clients.append((t, conn, addr))
@@ -176,28 +153,41 @@ def server_worker(controller_ip, controller_port, network, done_event):
         done_threads.append(t)
     clients = [c for c in clients if c[0] not in done_threads]
     time.sleep(0)  # yield
-    
+
     # Refresh network
 
   for t, conn, _ in clients:
     conn.close()
     t.join()
-    
-    
+
+
 def debug_print_worker(network, done_event):
   while not done_event.is_set():
     time.sleep(5)
-    log(network)
+    logging.debug(network)
 
 
 def main():
   parser = argparse.ArgumentParser()
   parser.add_argument('-c', '--controller-ip', default=CONTROLLER_IP, help='controller IP address')
   parser.add_argument('-p', '--controller-port', default=CONTROLLER_PORT, help='controller port')
+  parser.add_argument('-d', '--debug-file', default=DEBUG_FILEPATH, help='debug file')
+  parser.add_argument('-D', '--disable-debug', action='store_true', help='disable debug logging')
+  parser.add_argument('-P', '--print-stdout', action='store_true', help='print debug info to stdout')
   args = parser.parse_args()
 
+  if not args.disable_debug:
+    logging.basicConfig(level=logging.DEBUG, filename=args.debug_file)
+
+  if args.print_stdout:
+    rootLogger = logging.getLogger()
+    rootLogger.setLevel(logging.DEBUG)
+    streamHandler = logging.StreamHandler(sys.stdout)
+    streamHandler.setLevel(logging.DEBUG)
+    rootLogger.addHandler(streamHandler)
+
   network = Network()
-  
+
   done_event = threading.Event()
   threads = []
   t1 = threading.Thread(target=server_worker, args=[args.controller_ip, args.controller_port, network, done_event])
@@ -210,7 +200,7 @@ def main():
     while True:
       time.sleep(0.1)
   except KeyboardInterrupt:
-    print "Closing..."
+    print 'Closing...'
     done_event.set()
     for t in threads:
       t.join()
