@@ -166,13 +166,13 @@ def query_worker(done_event):
 
 
 ''' Connect to SDN controller and periodically send updates '''
-def update_worker(controller_addr, controller_port, done_event):
+def update_worker(args, done_event):
   def connect():
     try:
       logging.debug('Attempting to connect to SDN controller...')
       s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
       s.settimeout(CONTROLLER_CONNECT_TIMEOUT)
-      s.connect((controller_addr, controller_port))
+      s.connect((args.controller_ip, args.controller_port))
       logging.debug('Connected to SDN controller.')
     except socket.error, exc:
       return None
@@ -196,8 +196,16 @@ def update_worker(controller_addr, controller_port, done_event):
       neighbor.ip = ip
       neighbor.rtt = '{:6f}'.format(neighbors[ip]['rtt'])
 
+    # Add flow info
+    with open(os.path.join(args.output_dir, args.json_file), 'r') as json_file:
+      json_obj = json.load(json_file)
+      json_str = json.dumps(json_obj)
+      report.flow.jsonData = json_str
+
     try:
-      bytes_sent = s.send(report.SerializeToString())
+      report_str = report.SerializeToString()
+      report_len = struct.pack('>L', len(report_str))
+      bytes_sent = s.send(report_len + report_str)
       if bytes_sent == 0:
         logging.debug('Failed to send update message. Reconnecting...')
         s.close()
@@ -219,6 +227,8 @@ def main():
   parser.add_argument('-d', '--debug-file', default=DEBUG_FILEPATH, help='debug file')
   parser.add_argument('-D', '--disable-debug', action='store_true', help='disable debug logging')
   parser.add_argument('-P', '--print-stdout', action='store_true', help='print debug info to stdout')
+  parser.add_argument('-o', '--output-dir', default='output', help='captcp output directory')
+  parser.add_argument('-j', '--json-file', default='captcp.json', help='captcp json file')
   args = parser.parse_args()
 
   if not args.disable_debug:
@@ -237,7 +247,7 @@ def main():
   t1.start()
   t2 = threading.Thread(target=query_worker, args=[done_event])
   t2.start()
-  t3 = threading.Thread(target=update_worker, args=[args.controller_ip, args.controller_port, done_event])
+  t3 = threading.Thread(target=update_worker, args=[args, done_event])
   t3.start()
   threads.extend([t1, t2, t3])
 
@@ -249,7 +259,7 @@ def main():
     done_event.set()
     for t in threads:
       t.join()
-      
+
 
 if __name__ == '__main__':
   main()

@@ -99,14 +99,31 @@ class Node:
     return self.ip
 
 
+# http://eli.thegreenplace.net/2011/08/02/length-prefix-framing-for-protocol-buffers
+def socket_read_n(sock, n):
+    ''' Read exactly n bytes from the socket.
+        Raise RuntimeError if the connection closed before
+        n bytes were read.
+    '''
+    buf = ''
+    while n > 0:
+      data = sock.recv(n)
+      if data == '':
+        break
+      buf += data
+      n -= len(data)
+    return buf
+
 def receive_worker(conn, addr, network, done_event):
   # Handle a single client
   while not done_event.is_set():
     try:
-      msg = conn.recv(1024)
-      if len(msg) == 0:
+      len_buf = socket_read_n(conn, 4)
+      if len(len_buf) == 0:
         logging.debug('Lost connection from {0}'.format(addr))
         return
+      msg_len = struct.unpack('>L', len_buf)[0]
+      msg = socket_read_n(conn, msg_len)
 
       report = update_pb2.Report()
       report.ParseFromString(msg)

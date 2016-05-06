@@ -43,16 +43,16 @@ def run(args):
         with open(os.path.join(args.output_dir, 'statistic.data'),
                 'w') as stat, open(os.devnull, 'w') as devnull:
             command = ('sudo captcp statistic {pcap_file}').format(
-                pcap_file=args.pcap_file)
+                pcap_file=os.path.join(args.output_dir, args.pcap_file))
             ps = subprocess.Popen(shlex.split(command), stderr=devnull,
                 stdout=subprocess.PIPE)
-    
+
             command = ('sed -r -e "s/\x1B\[([0-9]{1,2}(;[0-9]{1,2})*)?[m|K]//g" '
                        '-e "s/^\s*//" -e "s/\s*$//" '
                        '-e "s/\( */(/" -e "s/\s{2}\s*/  /g"')
             subprocess.check_call(shlex.split(command), stdin=ps.stdout,
                 stdout=stat)
-    
+
         with open(os.path.join(args.output_dir, 'statistic.data'), 'r') as stat:
             lines = (line.strip() for line in stat)
             lines = (line for line in lines if line)
@@ -92,7 +92,7 @@ def run(args):
                         x for x in fields[0].title() if not x.isspace())
                     camelcased = pascalcased[0].lower() + pascalcased[1:]
                     current['src2dst'][camelcased] = fields[1].strip()
-    
+
                     pascalcased = ''.join(
                         x for x in fields[2].title() if not x.isspace())
                     camelcased = pascalcased[0].lower() + pascalcased[1:]
