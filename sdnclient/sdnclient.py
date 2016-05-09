@@ -230,8 +230,6 @@ def update_worker(args, done_event):
     json_str = json.dumps(routes)
     report.routes = json_str
 
-    print json_str
-
     try:
       report_str = report.SerializeToString()
       report_len = struct.pack('>L', len(report_str))
