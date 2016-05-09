@@ -13,6 +13,9 @@ import argparse
 import json
 import logging
 import netifaces
+import subprocess
+import shlex
+import re
 
 file_path = os.path.dirname(sys.argv[0])
 protobuf_path = os.path.abspath(os.path.join(file_path, '../protobuf'))
@@ -34,6 +37,20 @@ CONTROLLER_UPDATE_INTERVAL = 3.0
 DEBUG_FILEPATH = '/tmp/sdnclient.log'
 
 neighbors = {} # IP -> {last_refresh, rtt, response_count}
+
+''' Construct and return routing table object
+'''
+def get_routes():
+  routes = []
+  command = 'route -n'
+  ip_regex = '\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'
+  ps = subprocess.Popen(shlex.split(command), stdout=subprocess.PIPE)
+  for line in ps.stdout:
+    m = re.match('(?P<destination>{ip})\s+(?P<gateway>{ip})\s+(?P<genmask>{ip})\s+(?P<flags>\S+)\s+(?P<metric>\S+)\s+(?P<ref>\S+)\s+(?P<use>\S+)\s+(?P<iface>\S+)'.format(ip=ip_regex), line)
+    if m:
+      routes.append(m.groupdict())
+
+  return routes
 
 
 ''' Handle received messages from neighbors
@@ -206,7 +223,14 @@ def update_worker(args, done_event):
       with open(json_file_path, 'r') as json_file:
         json_obj = json.load(json_file)
         json_str = json.dumps(json_obj)
-        report.flow.jsonData = json_str
+        report.flows = json_str
+
+    # Add routes info
+    routes = get_routes()
+    json_str = json.dumps(routes)
+    report.routes = json_str
+
+    print json_str
 
     try:
       report_str = report.SerializeToString()

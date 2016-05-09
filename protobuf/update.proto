@@ -16,12 +16,9 @@ message Neighbor {
   optional string rtt = 2;
 }
 
-message Flow {
-  required string jsonData = 1;
-}
-
 message Report {
   required string timestamp = 1;
   repeated Neighbor neighbors = 2;
-  optional Flow flow = 3;
+  optional string flows = 3;
+  optional string routes = 4;
 }
