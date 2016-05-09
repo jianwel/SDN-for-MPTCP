@@ -201,10 +201,12 @@ def update_worker(args, done_event):
       neighbor.rtt = '{:6f}'.format(neighbors[ip]['rtt'])
 
     # Add flow info
-    with open(os.path.join(args.output_dir, args.json_file), 'r') as json_file:
-      json_obj = json.load(json_file)
-      json_str = json.dumps(json_obj)
-      report.flow.jsonData = json_str
+    json_file_path = os.path.join(args.output_dir, args.json_file)
+    if os.path.exists(json_file_path):
+      with open(json_file_path, 'r') as json_file:
+        json_obj = json.load(json_file)
+        json_str = json.dumps(json_obj)
+        report.flow.jsonData = json_str
 
     try:
       report_str = report.SerializeToString()
