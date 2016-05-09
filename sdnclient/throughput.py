@@ -39,9 +39,9 @@ def run(args):
 
     # captcp
     json_obj = {}
+    stats_path = os.path.join(args.output_dir, 'statistic.data')
     if packets_captured > 0:
-        with open(os.path.join(args.output_dir, 'statistic.data'),
-                'w') as stat, open(os.devnull, 'w') as devnull:
+        with open(stats_path, 'w') as stat, open(os.devnull, 'w') as devnull:
             command = ('sudo captcp statistic {pcap_file}').format(
                 pcap_file=os.path.join(args.output_dir, args.pcap_file))
             ps = subprocess.Popen(shlex.split(command), stderr=devnull,
@@ -53,7 +53,7 @@ def run(args):
             subprocess.check_call(shlex.split(command), stdin=ps.stdout,
                 stdout=stat)
 
-        with open(os.path.join(args.output_dir, 'statistic.data'), 'r') as stat:
+        with open(stats_path, 'r') as stat:
             lines = (line.strip() for line in stat)
             lines = (line for line in lines if line)
             current = json_obj
@@ -100,6 +100,8 @@ def run(args):
 
     with open(os.path.join(args.output_dir, args.json_file), 'w') as json_file:
         json.dump(json_obj, json_file, sort_keys = True, indent = 4, ensure_ascii = False)
+        if os.path.exists(stats_path):
+            os.remove(stats_path)
 
 def signal_handler(signal, frame):
     sys.exit(0)
