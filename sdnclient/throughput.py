@@ -30,7 +30,7 @@ def run(args):
         packet_count=args.packet_count)
     with open(os.devnull, 'w') as devnull:
         ps = subprocess.Popen(shlex.split(command), stderr=subprocess.PIPE)
-        time.sleep(2)
+        time.sleep(args.run_time)
         ps.terminate()
         for line in ps.stderr:
             m = re.match('(\d+) packets captured', line)
@@ -118,6 +118,8 @@ def main():
                         help='pcap file to create and analyze')
     parser.add_argument('-c', '--packet-count', type=int, default=10000,
                         help='tcpdump packet count')
+    parser.add_argument('-t', '--run-time', type=int, default=2,
+                        help='tcpdump run time')
     parser.add_argument('-o', '--output-dir', default='output',
                         help='captcp output directory')
     parser.add_argument('-j', '--json-file', default='captcp.json',
