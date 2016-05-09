@@ -53,12 +53,13 @@ class Network:
           node_neighbors.append(self.nodes_dict[neighbor.ip])
     node.neighbors = node_neighbors
 
-    self.refresh_node_list()  #TODO: More efficient way of removing lost clients?
-
     self.nodes_lock.release()
 
   def refresh_node_list(self):
-    if len(self.nodes) <= 1:
+    self.nodes_lock.acquire(True)
+
+    if len(self.nodes) < 1:
+      self.nodes_lock.release()
       return
 
     nodes_expired = []
@@ -78,12 +79,17 @@ class Network:
       self.nodes.remove(node)
       del self.nodes_dict[node.ip]
 
+    self.nodes_lock.release()
+
   def debug_print(self):
     self.nodes_lock.acquire(True)
+
     graph = 'Network (Size ' + str(len(self.nodes)) + ')\n'
     for node in self.nodes:
       graph += str(node) + ' -> ' + ', '.join([str(n) for n in node.neighbors]) + '\n'
+
     self.nodes_lock.release()
+
     return graph
 
 
@@ -181,6 +187,7 @@ def server_worker(controller_ip, controller_port, network, done_event):
 def debug_print_worker(network, done_event):
   while not done_event.is_set():
     time.sleep(5)
+    network.refresh_node_list()
     logging.debug(network)
 
 
