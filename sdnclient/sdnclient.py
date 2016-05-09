@@ -92,14 +92,16 @@ def listen_worker(done_event):
   own_addrs = []
   bcast_ifaces = []
   for iface in netifaces.interfaces():
-    ipv4 = netifaces.ifaddresses(iface)[netifaces.AF_INET][0]
-    addr_s = ipv4['addr']
-    own_addrs.append(addr_s)
-    addr = struct.unpack('>L', socket.inet_aton(addr_s))[0]
-    net = struct.unpack('>L', socket.inet_aton(BROADCAST_NET_S))[0]
-    mask = (0xffffffff << (32 - BROADCAST_MASK_BITS)) & 0xffffffff
-    if (addr & mask) == (net & mask):
-      bcast_ifaces.append({'name': iface, 'ipv4': ipv4})
+    ifaddr = netifaces.ifaddresses(iface)
+    if netifaces.AF_INET in ifaddr:
+      ipv4 = ifaddr[netifaces.AF_INET][0]
+      addr_s = ipv4['addr']
+      own_addrs.append(addr_s)
+      addr = struct.unpack('>L', socket.inet_aton(addr_s))[0]
+      net = struct.unpack('>L', socket.inet_aton(BROADCAST_NET_S))[0]
+      mask = (0xffffffff << (32 - BROADCAST_MASK_BITS)) & 0xffffffff
+      if (addr & mask) == (net & mask):
+        bcast_ifaces.append({'name': iface, 'ipv4': ipv4})
 
   logging.debug('Listening on port {0}'.format(BROADCAST_PORT))
 
@@ -141,13 +143,15 @@ def query_worker(done_event):
   # http://stackoverflow.com/questions/819355/how-can-i-check-if-an-ip-is-in-a-network-in-python
   bcast_ifaces = []
   for iface in netifaces.interfaces():
-    ipv4 = netifaces.ifaddresses(iface)[netifaces.AF_INET][0]
-    addr_s = ipv4['addr']
-    addr = struct.unpack('>L', socket.inet_aton(addr_s))[0]
-    net = struct.unpack('>L', socket.inet_aton(BROADCAST_NET_S))[0]
-    mask = (0xffffffff << (32 - BROADCAST_MASK_BITS)) & 0xffffffff
-    if (addr & mask) == (net & mask):
-      bcast_ifaces.append({'name': iface, 'ipv4': ipv4})
+    ifaddr = netifaces.ifaddresses(iface)
+    if netifaces.AF_INET in ifaddr:
+      ipv4 = ifaddr[netifaces.AF_INET][0]
+      addr_s = ipv4['addr']
+      addr = struct.unpack('>L', socket.inet_aton(addr_s))[0]
+      net = struct.unpack('>L', socket.inet_aton(BROADCAST_NET_S))[0]
+      mask = (0xffffffff << (32 - BROADCAST_MASK_BITS)) & 0xffffffff
+      if (addr & mask) == (net & mask):
+        bcast_ifaces.append({'name': iface, 'ipv4': ipv4})
 
   while not done_event.is_set():
     try:
