@@ -9,11 +9,13 @@ message Update {
   required string timestamp = 1;
   required UpdateType utype = 2;
   required string ip = 3;
+  optional string alias = 4;
 }
 
 message Neighbor {
   required string ip = 1;
   optional string rtt = 2;
+  optional string alias = 3;
 }
 
 message Report {
@@ -21,4 +23,5 @@ message Report {
   repeated Neighbor neighbors = 2;
   optional string flows = 3;
   optional string routes = 4;
+  optional string alias = 5;
 }

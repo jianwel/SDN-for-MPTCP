@@ -29,28 +29,31 @@ DEBUG_FILEPATH = "/tmp/sdncontroller.txt"
 class Network:
   def __init__(self):
     self.nodes = []
-    self.nodes_dict = {}  # IP -> Node instance
+    self.nodes_dict = {}  # Alias -> Node instance
     self.nodes_lock = threading.Lock()
 
   def __str__(self):
     return self.debug_print()
 
-  def update_node(self, ip, report):
+  def update_node(self, alias, ip, report):
     self.nodes_lock.acquire(True)
 
-    if ip in self.nodes_dict:
-      node = self.nodes_dict[ip]
+    if alias in self.nodes_dict:
+      node = self.nodes_dict[alias]
       node.last_update = time.time()
     else:
-      node = Node(ip, self)
+      node = Node(alias, ip, self)
       self.nodes.append(node)
-      self.nodes_dict[ip] = node
+      self.nodes_dict[alias] = node
 
     node_neighbors = []
     if len(report.neighbors) > 0:
       for neighbor in report.neighbors:
-        if neighbor.ip in self.nodes_dict:
-          node_neighbors.append(self.nodes_dict[neighbor.ip])
+        neighbor_alias = neighbor.ip
+        if neighbor.HasField('alias'):
+          neighbor_alias = neighbor.alias
+        if neighbor_alias in self.nodes_dict:
+          node_neighbors.append(self.nodes_dict[neighbor_alias])
     node.neighbors = node_neighbors
 
     self.nodes_lock.release()
@@ -77,7 +80,7 @@ class Network:
 
     for node in nodes_expired:
       self.nodes.remove(node)
-      del self.nodes_dict[node.ip]
+      del self.nodes_dict[node.alias]
 
     self.nodes_lock.release()
 
@@ -95,14 +98,15 @@ class Network:
 
 ''' Node class representing a client in the network '''
 class Node:
-  def __init__(self, ip, network):
+  def __init__(self, alias, ip, network):
+    self.alias = alias
     self.ip = ip
     self.neighbors = []
     self.network = network
     self.last_update = time.time()
 
   def __str__(self):
-    return self.ip
+    return self.alias
 
 
 # http://eli.thegreenplace.net/2011/08/02/length-prefix-framing-for-protocol-buffers
@@ -133,10 +137,14 @@ def receive_worker(conn, addr, network, done_event):
 
       report = update_pb2.Report()
       report.ParseFromString(msg)
+      
+      alias = addr[0]
+      if report.HasField('alias'):
+        alias = report.alias
 
-      logging.debug('Report from {0}: time = {1}'.format(addr, report.timestamp))
+      logging.debug('Report from {0}: time = {1}'.format(alias, report.timestamp))
 
-      network.update_node(addr[0], report)
+      network.update_node(alias, addr[0], report)
 
     except socket.error, exc:
       logging.debug("Lost connection from", addr)

@@ -36,7 +36,7 @@ CONTROLLER_UPDATE_INTERVAL = 3.0
 
 DEBUG_FILEPATH = '/tmp/sdnclient.log'
 
-neighbors = {} # IP -> {last_refresh, rtt, response_count}
+neighbors = {} # IP -> {alias, last_refresh, rtt, response_count}
 
 ''' Construct and return routing table object
 '''
@@ -57,7 +57,7 @@ def get_routes():
 '''
 def handle_recv_msg(msg, host_addr, own_addrs, res, bcast_ifaces):
   if host_addr not in neighbors:
-    neighbors[host_addr] = {'last_refresh': time.time(), 'rtt': 0.0, 'response_count': 0}
+    neighbors[host_addr] = {'alias':'', 'last_refresh': time.time(), 'rtt': 0.0, 'response_count': 0}
   else:
     neighbors[host_addr]['last_refresh'] = time.time()
 
@@ -74,6 +74,9 @@ def handle_recv_msg(msg, host_addr, own_addrs, res, bcast_ifaces):
       response.ip = bcast_iface['ipv4']['addr']
       bcast_addr = (bcast_iface['ipv4']['broadcast'], BROADCAST_PORT)
       res.sendto(response.SerializeToString(), bcast_addr)
+     
+    if update.HasField('alias'):
+      neighbors[host_addr]['alias'] = update.alias
   elif update.utype == update_pb2.Update.RESPONSE:
     logging.debug('Got response! {0}'.format(host_addr))
 
@@ -151,7 +154,7 @@ def listen_worker(done_event):
 
 ''' Periodically send QUERY to all neighbors.
 '''
-def query_worker(done_event):
+def query_worker(args, done_event):
   s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
   s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
@@ -175,6 +178,9 @@ def query_worker(done_event):
       query = update_pb2.Update()
       query.timestamp = '{:.6f}'.format(time.time())
       query.utype = update_pb2.Update.QUERY
+      if len(args.alias) > 0:
+        query.alias = args.alias
+        
       for bcast_iface in bcast_ifaces:
         query.ip = bcast_iface['ipv4']['addr']
         bcast_addr = (bcast_iface['ipv4']['broadcast'], BROADCAST_PORT)
@@ -211,11 +217,15 @@ def update_worker(args, done_event):
     # Construct neighbor report
     report = update_pb2.Report()
     report.timestamp = '{:.6f}'.format(time.time())
-    # IP -> {last_refresh, rtt, response_count}
+    if len(args.alias) > 0:
+      report.alias = args.alias
+    # IP -> {alias, last_refresh, rtt, response_count}
     for ip in neighbors:
       neighbor = report.neighbors.add()
       neighbor.ip = ip
       neighbor.rtt = '{:6f}'.format(neighbors[ip]['rtt'])
+      if len(neighbors[ip]['alias']) > 0:
+        neighbor.alias = neighbors[ip]['alias']
 
     # Add flow info
     json_file_path = os.path.join(args.output_dir, args.json_file)
@@ -257,6 +267,7 @@ def main():
   parser.add_argument('-P', '--print-stdout', action='store_true', help='print debug info to stdout')
   parser.add_argument('-o', '--output-dir', default='output', help='captcp output directory')
   parser.add_argument('-j', '--json-file', default='captcp.json', help='captcp json file')
+  parser.add_argument('-a', '--alias', default='', help='unique alias in network')
   args = parser.parse_args()
 
   if not args.disable_debug:
@@ -273,7 +284,7 @@ def main():
   threads = []
   t1 = threading.Thread(target=listen_worker, args=[done_event])
   t1.start()
-  t2 = threading.Thread(target=query_worker, args=[done_event])
+  t2 = threading.Thread(target=query_worker, args=[args, done_event])
   t2.start()
   t3 = threading.Thread(target=update_worker, args=[args, done_event])
   t3.start()
