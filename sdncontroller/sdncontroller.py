@@ -35,14 +35,14 @@ class Network:
   def __str__(self):
     return self.debug_print()
 
-  def update_node(self, alias, ip, report):
+  def update_node(self, alias, ip, report, socket):
     self.nodes_lock.acquire(True)
 
     if alias in self.nodes_dict:
       node = self.nodes_dict[alias]
       node.last_update = time.time()
     else:
-      node = Node(alias, ip, self)
+      node = Node(alias, ip, self, socket)
       self.nodes.append(node)
       self.nodes_dict[alias] = node
 
@@ -98,11 +98,12 @@ class Network:
 
 ''' Node class representing a client in the network '''
 class Node:
-  def __init__(self, alias, ip, network):
+  def __init__(self, alias, ip, network, socket):
     self.alias = alias
     self.ip = ip
     self.neighbors = []
     self.network = network
+    self.socket = socket
     self.last_update = time.time()
 
   def __str__(self):
@@ -137,14 +138,15 @@ def receive_worker(conn, addr, network, done_event):
 
       report = update_pb2.Report()
       report.ParseFromString(msg)
-      
+
       alias = addr[0]
       if report.HasField('alias'):
         alias = report.alias
 
       logging.debug('Report from {0}: time = {1}'.format(alias, report.timestamp))
 
-      network.update_node(alias, addr[0], report)
+      network.update_node(alias, addr[0], report, conn)
+      network.refresh_node_list()
 
     except socket.error, exc:
       logging.debug("Lost connection from", addr)
@@ -185,8 +187,7 @@ def server_worker(controller_ip, controller_port, network, done_event):
     clients = [c for c in clients if c[0] not in done_threads]
     time.sleep(0)  # yield
 
-    # Refresh network
-
+  # Refresh network
   for t, conn, _ in clients:
     conn.close()
     t.join()

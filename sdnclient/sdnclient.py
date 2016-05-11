@@ -57,7 +57,7 @@ def get_routes():
 '''
 def handle_recv_msg(msg, host_addr, own_addrs, res, bcast_ifaces):
   if host_addr not in neighbors:
-    neighbors[host_addr] = {'alias':'', 'last_refresh': time.time(), 'rtt': 0.0, 'response_count': 0}
+    neighbors[host_addr] = {'alias': '', 'last_refresh': time.time(), 'rtt': 0.0, 'response_count': 0}
   else:
     neighbors[host_addr]['last_refresh'] = time.time()
 
@@ -74,7 +74,7 @@ def handle_recv_msg(msg, host_addr, own_addrs, res, bcast_ifaces):
       response.ip = bcast_iface['ipv4']['addr']
       bcast_addr = (bcast_iface['ipv4']['broadcast'], BROADCAST_PORT)
       res.sendto(response.SerializeToString(), bcast_addr)
-     
+
     if update.HasField('alias'):
       neighbors[host_addr]['alias'] = update.alias
   elif update.utype == update_pb2.Update.RESPONSE:
@@ -180,7 +180,7 @@ def query_worker(args, done_event):
       query.utype = update_pb2.Update.QUERY
       if len(args.alias) > 0:
         query.alias = args.alias
-        
+
       for bcast_iface in bcast_ifaces:
         query.ip = bcast_iface['ipv4']['addr']
         bcast_addr = (bcast_iface['ipv4']['broadcast'], BROADCAST_PORT)
