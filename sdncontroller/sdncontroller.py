@@ -42,7 +42,15 @@ class Network:
       node = self.nodes_dict[alias]
       node.last_update = time.time()
     else:
-      node = Node(alias, ip, self, socket)
+      routes = {}
+      if report.HasField('routes'):
+        routes = json.loads(report.routes)
+
+      interfaces = {}
+      if report.HasField('interfaces'):
+        interfaces = json.loads(report.interfaces)
+
+      node = Node(alias, ip, self, socket, routes, interfaces)
       self.nodes.append(node)
       self.nodes_dict[alias] = node
 
@@ -98,12 +106,14 @@ class Network:
 
 ''' Node class representing a client in the network '''
 class Node:
-  def __init__(self, alias, ip, network, socket):
+  def __init__(self, alias, ip, network, socket, routes, interfaces):
     self.alias = alias
     self.ip = ip
     self.neighbors = []
     self.network = network
     self.socket = socket
+    self.routes = routes
+    self.interfaces = interfaces
     self.last_update = time.time()
 
   def __str__(self):
