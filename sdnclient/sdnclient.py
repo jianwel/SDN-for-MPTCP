@@ -52,6 +52,16 @@ def get_routes():
 
   return routes
 
+''' Construct and return interfaces object
+'''
+def get_interfaces():
+  interfaces = {}
+  for iface in netifaces.interfaces():
+    ifaddr = netifaces.ifaddresses(iface)
+    if netifaces.AF_INET in ifaddr:
+      interfaces[iface] = ifaddr[netifaces.AF_INET][0]
+
+  return interfaces
 
 ''' Handle received messages from neighbors
 '''
@@ -239,6 +249,11 @@ def update_worker(args, done_event):
     routes = get_routes()
     json_str = json.dumps(routes)
     report.routes = json_str
+
+    # Add interfaces info
+    ifaces = get_interfaces()
+    json_str = json.dumps(ifaces)
+    report.interfaces = json_str
 
     try:
       report_str = report.SerializeToString()

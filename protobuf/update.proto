@@ -24,4 +24,5 @@ message Report {
   optional string flows = 3;
   optional string routes = 4;
   optional string alias = 5;
+  optional string interfaces = 6;
 }
