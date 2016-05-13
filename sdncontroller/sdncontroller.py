@@ -76,11 +76,12 @@ class Network:
     nodes_expired = []
 
     # Expire nodes that do not appear in any neighbor's list
+    curtime = time.time()
     for node in self.nodes:
-      if time.time() - node.last_update >= NODE_EXPIRE_TIME:
+      if curtime - node.last_update >= NODE_EXPIRE_TIME:
         found = False
         for neighbor in node.neighbors:
-          if node in neighbor.neighbors:
+          if node.socket and curtime - neighbor.last_update >= NODE_EXPIRE_TIME and node.socketnode in neighbor.neighbors:
             found = True
             break
         if not found:
@@ -92,6 +93,12 @@ class Network:
 
     self.nodes_lock.release()
 
+  def set_node_lost(self, alias):
+    self.nodes_lock.acquire(True)
+    if alias in self.nodes_dict:
+      self.nodes_dict[alias].socket = None  # closed by server worker
+    self.nodes_lock.release()
+                  
   def debug_print(self):
     self.nodes_lock.acquire(True)
 
@@ -142,6 +149,7 @@ def receive_worker(conn, addr, network, done_event):
       len_buf = socket_read_n(conn, 4)
       if len(len_buf) == 0:
         logging.debug('Lost connection from {0}'.format(addr))
+        network.set_node_lost(alias)
         return
       msg_len = struct.unpack('>L', len_buf)[0]
       msg = socket_read_n(conn, msg_len)
