@@ -164,7 +164,7 @@ def listen_worker(done_event):
 
 ''' Periodically send QUERY to all neighbors.
 '''
-def query_worker(args, done_event):
+def query_worker(done_event, args):
   s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
   s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
@@ -203,7 +203,7 @@ def query_worker(args, done_event):
 
 
 ''' Connect to SDN controller and periodically send updates '''
-def update_worker(args, done_event):
+def update_worker(done_event, args):
   def connect():
     try:
       logging.debug('Attempting to connect to SDN controller...')
@@ -299,9 +299,9 @@ def main():
   threads = []
   t1 = threading.Thread(target=listen_worker, args=[done_event])
   t1.start()
-  t2 = threading.Thread(target=query_worker, args=[args, done_event])
+  t2 = threading.Thread(target=query_worker, args=[done_event, args])
   t2.start()
-  t3 = threading.Thread(target=update_worker, args=[args, done_event])
+  t3 = threading.Thread(target=update_worker, args=[done_event, args])
   t3.start()
   threads.extend([t1, t2, t3])
 

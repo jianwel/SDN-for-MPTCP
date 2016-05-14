@@ -11,6 +11,7 @@ import threading
 import time
 import argparse
 import logging
+import shlex
 
 file_path = os.path.dirname(sys.argv[0])
 protobuf_path = os.path.abspath(os.path.join(file_path, '../protobuf'))
@@ -21,6 +22,7 @@ CONTROLLER_IP = ''
 CONTROLLER_PORT = 36502
 
 NODE_EXPIRE_TIME = 5.0
+NETWORK_REFRESH_ITVL = 5
 
 DEBUG_FILEPATH = "/tmp/sdncontroller.txt"
 
@@ -98,7 +100,7 @@ class Network:
     if alias in self.nodes_dict:
       self.nodes_dict[alias].socket = None  # closed by server worker
     self.nodes_lock.release()
-                  
+
   def debug_print(self):
     self.nodes_lock.acquire(True)
 
@@ -170,13 +172,13 @@ def receive_worker(conn, addr, network, done_event):
       logging.debug("Lost connection from", addr)
       return
 
-def server_worker(controller_ip, controller_port, network, done_event):
+def server_worker(done_event, network, args):
   # Initialize server for receiving updates
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-  s.bind((controller_ip, controller_port))
+  s.bind((args.controller_ip, args.controller_port))
   s.settimeout(5)
   s.listen(5)
-  logging.debug('Listening on port {0} for incoming connections'.format(controller_port))
+  logging.debug('Listening on port {0} for incoming connections'.format(args.controller_port))
 
   # Create one receive worker thread for each client
   clients = []
@@ -211,11 +213,23 @@ def server_worker(controller_ip, controller_port, network, done_event):
     t.join()
 
 
-def debug_print_worker(network, done_event):
+def network_refresh_worker(done_event, network):
   while not done_event.is_set():
-    time.sleep(5)
+    time.sleep(NETWORK_REFRESH_ITVL)
     network.refresh_node_list()
     logging.debug(network)
+
+
+def input_worker(done_event, network):
+  while not done_event.is_set():
+    cmd = shlex.split(raw_input('> ').strip())
+    if len(cmd) <= 0:
+      continue
+    elif cmd[0] == 'exit':
+      done_event.set()
+      break
+    else:
+      print 'usage:\n'
 
 
 def main():
@@ -241,20 +255,23 @@ def main():
 
   done_event = threading.Event()
   threads = []
-  t1 = threading.Thread(target=server_worker, args=[args.controller_ip, args.controller_port, network, done_event])
+  t1 = threading.Thread(target=server_worker, args=[done_event, network, args])
   t1.start()
-  t2 = threading.Thread(target=debug_print_worker, args=[network, done_event])
+  t2 = threading.Thread(target=network_refresh_worker, args=[done_event, network])
   t2.start()
-  threads.extend([t1, t2])
+  t3 = threading.Thread(target=input_worker, args=[done_event, network])
+  t3.start()
+  threads.extend([t1, t2, t3])
 
   try:
-    while True:
+    while not done_event.is_set():
       time.sleep(0.1)
   except KeyboardInterrupt:
-    print 'Closing...'
     done_event.set()
-    for t in threads:
-      t.join()
+
+  print '\nClosing...'
+  for t in threads:
+    t.join()
 
 if __name__ == '__main__':
   main()
