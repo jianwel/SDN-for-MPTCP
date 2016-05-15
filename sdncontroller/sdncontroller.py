@@ -83,7 +83,7 @@ class Network:
       if curtime - node.last_update >= NODE_EXPIRE_TIME:
         found = False
         for neighbor in node.neighbors:
-          if node.socket and curtime - neighbor.last_update >= NODE_EXPIRE_TIME and node.socketnode in neighbor.neighbors:
+          if node.socket and curtime - neighbor.last_update >= NODE_EXPIRE_TIME and node in neighbor.neighbors:
             found = True
             break
         if not found:
