@@ -56,15 +56,16 @@ class Network:
       self.nodes.append(node)
       self.nodes_dict[alias] = node
 
-    node_neighbors = []
     if len(report.neighbors) > 0:
       for neighbor in report.neighbors:
         neighbor_alias = neighbor.ip
         if neighbor.HasField('alias'):
           neighbor_alias = neighbor.alias
-        if neighbor_alias in self.nodes_dict:
-          node_neighbors.append(self.nodes_dict[neighbor_alias])
-    node.neighbors = node_neighbors
+
+        if neighbor_alias in self.nodes_dict:  # neighbor must already be known by controller
+          neighbor_node = self.nodes_dict[neighbor_alias]
+          #TODO: Include interface name in update (needed for rerouting)
+          node.update_neighbor(neighbor_node, 'unknown', neighbor.ip, float(neighbor.rtt)) 
 
     self.nodes_lock.release()
 
@@ -83,7 +84,7 @@ class Network:
       if curtime - node.last_update >= NODE_EXPIRE_TIME:
         found = False
         for neighbor in node.neighbors:
-          if node.socket and curtime - neighbor.last_update >= NODE_EXPIRE_TIME and node in neighbor.neighbors:
+          if node.socket and curtime - neighbor.last_update >= NODE_EXPIRE_TIME and neighbor.has_neighbor(node):
             found = True
             break
         if not found:
@@ -105,8 +106,14 @@ class Network:
     self.nodes_lock.acquire(True)
 
     graph = 'Network (Size ' + str(len(self.nodes)) + ')\n'
+
     for node in self.nodes:
-      graph += str(node) + ' -> ' + ', '.join([str(n) for n in node.neighbors]) + '\n'
+      graph += '%s -> (%d)\n' % (str(node), len(node.neighbors))
+      for neighbor, link in node.neighbors.iteritems():
+        graph += '  %s \t %s\t rtt=%.6f\n' % (str(neighbor), str(link), link.rtt)
+
+    #for node in self.nodes:
+    #  graph += str(node) + ' -> ' + ', '.join([str(n) for n in node.neighbors]) + '\n'
 
     self.nodes_lock.release()
 
@@ -117,16 +124,43 @@ class Network:
 class Node:
   def __init__(self, alias, ip, network, socket, routes, interfaces):
     self.alias = alias
-    self.ip = ip
-    self.neighbors = []
+    self.ip = ip  # endpoint in node <-> controller connection
+    self.neighbors = {}  # Node instance -> Link instance
     self.network = network
     self.socket = socket
     self.routes = routes
     self.interfaces = interfaces
     self.last_update = time.time()
 
+  def update_neighbor(self, neighbor_node, interface, to_ip, rtt):
+    if neighbor_node in self.neighbors:
+      link = self.neighbors[neighbor_node]
+      link.rtt = rtt
+    else:
+      link = Link(interface, to_ip, rtt)
+      self.neighbors[neighbor_node] = link
+
+  def has_neighbor(self, node):
+    return node in self.neighbors
+
+  def get_link(self, node):
+    if node in self.neighbors:
+      return self.neighbors[node]
+    return None
+
   def __str__(self):
     return self.alias
+
+
+''' Link class defining statistics for a neighboring link '''
+class Link:
+  def __init__(self, interface, to_ip, rtt):
+    self.interface = interface
+    self.to_ip = to_ip
+    self.rtt = rtt
+
+  def __str__(self):
+    return "%s via %s" % (self.to_ip, self.interface)
 
 
 # http://eli.thegreenplace.net/2011/08/02/length-prefix-framing-for-protocol-buffers
