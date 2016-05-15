@@ -209,8 +209,8 @@ def socket_read_n_time(sock, n, buf, timeout):
         n bytes were read.
     '''
     start_time = time.time()
+    time_diff = 0
     while n > 0:
-      time_diff = time.time() - start_time
       if time_diff > timeout:
         raise socket.timeout
       sock.settimeout(timeout - time_diff)
@@ -222,6 +222,8 @@ def socket_read_n_time(sock, n, buf, timeout):
         buf = ''
       buf += data
       n -= len(data)
+      if n > 0:
+        time_diff = time.time() - start_time
 
     return buf, n
 
