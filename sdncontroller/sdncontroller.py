@@ -24,7 +24,7 @@ CONTROLLER_PORT = 36502
 NODE_EXPIRE_TIME = 5.0
 NETWORK_REFRESH_ITVL = 5
 
-DEBUG_FILEPATH = "/tmp/sdncontroller.txt"
+DEBUG_FILEPATH = '/tmp/sdncontroller.txt'
 
 
 ''' Network class defining a graph of nodes '''
@@ -65,7 +65,7 @@ class Network:
         if neighbor_alias in self.nodes_dict:  # neighbor must already be known by controller
           neighbor_node = self.nodes_dict[neighbor_alias]
           #TODO: Include interface name in update (needed for rerouting)
-          node.update_neighbor(neighbor_node, 'unknown', neighbor.ip, float(neighbor.rtt)) 
+          node.update_neighbor(neighbor_node, 'unknown', neighbor.ip, float(neighbor.rtt))
 
     self.nodes_lock.release()
 
@@ -160,7 +160,7 @@ class Link:
     self.rtt = rtt
 
   def __str__(self):
-    return "%s via %s" % (self.to_ip, self.interface)
+    return '%s via %s' % (self.to_ip, self.interface)
 
 
 # http://eli.thegreenplace.net/2011/08/02/length-prefix-framing-for-protocol-buffers
@@ -203,7 +203,7 @@ def receive_worker(conn, addr, network, done_event):
       network.refresh_node_list()
 
     except socket.error, exc:
-      logging.debug("Lost connection from", addr)
+      logging.debug('Lost connection from {0}'.format(addr))
       return
 
 def server_worker(done_event, network, args):
