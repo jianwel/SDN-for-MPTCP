@@ -13,7 +13,7 @@ from google.protobuf import descriptor_pb2
 DESCRIPTOR = _descriptor.FileDescriptor(
   name='update.proto',
   package='sdn',
-  serialized_pb='\n\x0cupdate.proto\x12\x03sdn\"\x84\x01\n\x06Update\x12\x11\n\ttimestamp\x18\x01 \x02(\t\x12%\n\x05utype\x18\x02 \x02(\x0e\x32\x16.sdn.Update.UpdateType\x12\n\n\x02ip\x18\x03 \x02(\t\x12\r\n\x05\x61lias\x18\x04 \x01(\t\"%\n\nUpdateType\x12\t\n\x05QUERY\x10\x00\x12\x0c\n\x08RESPONSE\x10\x01\"2\n\x08Neighbor\x12\n\n\x02ip\x18\x01 \x02(\t\x12\x0b\n\x03rtt\x18\x02 \x01(\t\x12\r\n\x05\x61lias\x18\x03 \x01(\t\"\x7f\n\x06Report\x12\x11\n\ttimestamp\x18\x01 \x02(\t\x12 \n\tneighbors\x18\x02 \x03(\x0b\x32\r.sdn.Neighbor\x12\r\n\x05\x66lows\x18\x03 \x01(\t\x12\x0e\n\x06routes\x18\x04 \x01(\t\x12\r\n\x05\x61lias\x18\x05 \x01(\t\x12\x12\n\ninterfaces\x18\x06 \x01(\t')
+  serialized_pb='\n\x0cupdate.proto\x12\x03sdn\"\x84\x01\n\x06Update\x12\x11\n\ttimestamp\x18\x01 \x02(\t\x12%\n\x05utype\x18\x02 \x02(\x0e\x32\x16.sdn.Update.UpdateType\x12\n\n\x02ip\x18\x03 \x02(\t\x12\r\n\x05\x61lias\x18\x04 \x01(\t\"%\n\nUpdateType\x12\t\n\x05QUERY\x10\x00\x12\x0c\n\x08RESPONSE\x10\x01\"E\n\x08Neighbor\x12\n\n\x02ip\x18\x01 \x02(\t\x12\x0b\n\x03rtt\x18\x02 \x01(\t\x12\r\n\x05\x61lias\x18\x03 \x01(\t\x12\x11\n\tinterface\x18\x04 \x01(\t\"\x7f\n\x06Report\x12\x11\n\ttimestamp\x18\x01 \x02(\t\x12 \n\tneighbors\x18\x02 \x03(\x0b\x32\r.sdn.Neighbor\x12\r\n\x05\x66lows\x18\x03 \x01(\t\x12\x0e\n\x06routes\x18\x04 \x01(\t\x12\r\n\x05\x61lias\x18\x05 \x01(\t\x12\x12\n\ninterfaces\x18\x06 \x01(\t')
 
 
 
@@ -117,6 +117,13 @@ _NEIGHBOR = _descriptor.Descriptor(
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       options=None),
+    _descriptor.FieldDescriptor(
+      name='interface', full_name='sdn.Neighbor.interface', index=3,
+      number=4, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=unicode("", "utf-8"),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
   ],
   extensions=[
   ],
@@ -127,7 +134,7 @@ _NEIGHBOR = _descriptor.Descriptor(
   is_extendable=False,
   extension_ranges=[],
   serialized_start=156,
-  serialized_end=206,
+  serialized_end=225,
 )
 
 
@@ -189,8 +196,8 @@ _REPORT = _descriptor.Descriptor(
   options=None,
   is_extendable=False,
   extension_ranges=[],
-  serialized_start=208,
-  serialized_end=335,
+  serialized_start=227,
+  serialized_end=354,
 )
 
 _UPDATE.fields_by_name['utype'].enum_type = _UPDATE_UPDATETYPE

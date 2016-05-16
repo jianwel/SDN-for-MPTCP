@@ -62,10 +62,13 @@ class Network:
         if neighbor.HasField('alias'):
           neighbor_alias = neighbor.alias
 
+        neighbor_interface = 'unknown'
+        if neighbor.HasField('interface'):
+          neighbor_interface = neighbor.interface
+
         if neighbor_alias in self.nodes_dict:  # neighbor must already be known by controller
           neighbor_node = self.nodes_dict[neighbor_alias]
-          #TODO: Include interface name in update (needed for rerouting)
-          node.update_neighbor(neighbor_node, 'unknown', neighbor.ip, float(neighbor.rtt)) 
+          node.update_neighbor(neighbor_node, neighbor_interface, neighbor.ip, float(neighbor.rtt)) 
 
     self.nodes_lock.release()
 

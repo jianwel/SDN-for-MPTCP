@@ -36,7 +36,7 @@ CONTROLLER_UPDATE_INTERVAL = 3.0
 
 DEBUG_FILEPATH = '/tmp/sdnclient.log'
 
-neighbors = {} # IP -> {alias, last_refresh, rtt, response_count}
+neighbors = {} # IP -> {alias, interface, last_refresh, rtt, response_count}
 
 ''' Construct and return routing table object
 '''
@@ -65,9 +65,9 @@ def get_interfaces():
 
 ''' Handle received messages from neighbors
 '''
-def handle_recv_msg(msg, host_addr, own_addrs, res, bcast_ifaces):
+def handle_recv_msg(msg, host_addr, own_addrs, res, bcast_ifaces, interface_name):
   if host_addr not in neighbors:
-    neighbors[host_addr] = {'alias': '', 'last_refresh': time.time(), 'rtt': 0.0, 'response_count': 0}
+    neighbors[host_addr] = {'alias': '', 'interface': interface_name, 'last_refresh': time.time(), 'rtt': 0.0, 'response_count': 0}
   else:
     neighbors[host_addr]['last_refresh'] = time.time()
 
@@ -107,11 +107,11 @@ def handle_recv_msg(msg, host_addr, own_addrs, res, bcast_ifaces):
 '''
 def listen_worker(done_event):
   # http://www.java2s.com/Code/Python/Network/UDPBroadcastServer.htm
-  s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+  '''s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
   s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
   s.setblocking(0)
-  s.bind(('', BROADCAST_PORT))
+  s.bind(('', BROADCAST_PORT))'''
 
   res = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   res.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -133,17 +133,28 @@ def listen_worker(done_event):
       if (addr & mask) == (net & mask):
         bcast_ifaces.append({'name': iface, 'ipv4': ipv4})
 
+  # Create broadcast sockets for each inteface
+  bcast_pairs = []  # (socket, interface name)
+  for iface in bcast_ifaces:
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    s.setblocking(0)
+    s.bind((iface['ipv4']['broadcast'], BROADCAST_PORT))
+    bcast_pairs.append( (s, iface['name']) )
+
   logging.debug('Listening on port {0}'.format(BROADCAST_PORT))
 
   while not done_event.is_set():
     try:
-      # Read messages
-      read_ready, _, _ = select.select([s], [], [], 0)
-      if read_ready:
-        msg, (host_addr, port) = s.recvfrom(1024)
-        if host_addr in own_addrs:
-          continue
-        handle_recv_msg(msg, host_addr, own_addrs, res, bcast_ifaces)
+      # Read messages on each interface
+      for s, interface_name in bcast_pairs:
+        read_ready, _, _ = select.select([s], [], [], 0)
+        if read_ready:
+          msg, (host_addr, port) = s.recvfrom(1024)
+          if host_addr in own_addrs:
+            continue
+          handle_recv_msg(msg, host_addr, own_addrs, res, bcast_ifaces, interface_name)
 
       # Timeout unheard neighbors
       cur_time = time.time()
@@ -236,6 +247,8 @@ def update_worker(done_event, args):
       neighbor.rtt = '{:6f}'.format(neighbors[ip]['rtt'])
       if len(neighbors[ip]['alias']) > 0:
         neighbor.alias = neighbors[ip]['alias']
+      if len(neighbors[ip]['interface']) > 0:
+        neighbor.interface = neighbors[ip]['interface']
 
     # Add flow info
     json_file_path = os.path.join(args.output_dir, args.json_file)

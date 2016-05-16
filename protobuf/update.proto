@@ -16,6 +16,7 @@ message Neighbor {
   required string ip = 1;
   optional string rtt = 2;
   optional string alias = 3;
+  optional string interface = 4;
 }
 
 message Report {
