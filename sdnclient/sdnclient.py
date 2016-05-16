@@ -38,7 +38,7 @@ DEBUG_FILEPATH = '/tmp/sdnclient.log'
 
 neighbors = {} # IP -> {alias, interface, last_refresh, rtt, response_count}
 
-''' Construct and return routing table object
+''' Construct and return routing table object.
 '''
 def get_routes():
   routes = []
@@ -52,7 +52,7 @@ def get_routes():
 
   return routes
 
-''' Construct and return interfaces object
+''' Construct and return interfaces object.
 '''
 def get_interfaces():
   interfaces = {}
@@ -63,7 +63,7 @@ def get_interfaces():
 
   return interfaces
 
-''' Handle received messages from neighbors
+''' Handle received messages from neighbors.
 '''
 def handle_recv_msg(msg, host_addr, own_addrs, res, bcast_ifaces, interface_name):
   if host_addr not in neighbors:
@@ -213,7 +213,34 @@ def query_worker(done_event, args):
       traceback.print_exc()
 
 
-''' Connect to SDN controller and periodically send updates '''
+# http://eli.thegreenplace.net/2011/08/02/length-prefix-framing-for-protocol-buffers
+def socket_read_n_time(sock, n, buf, timeout):
+    ''' Read exactly n bytes from the socket.
+        Raise RuntimeError if the connection closed before
+        n bytes were read.
+    '''
+    start_time = time.time()
+    time_diff = 0
+    while n > 0:
+      if time_diff > timeout:
+        raise socket.timeout
+      sock.settimeout(timeout - time_diff)
+      data = sock.recv(n)
+      if data == '':
+        buf = ''
+        break
+      if not buf:
+        buf = ''
+      buf += data
+      n -= len(data)
+      if n > 0:
+        time_diff = time.time() - start_time
+
+    return buf, n
+
+
+''' Connect to SDN controller and periodically send updates.
+'''
 def update_worker(done_event, args):
   def connect():
     try:
@@ -222,13 +249,19 @@ def update_worker(done_event, args):
       s.settimeout(CONTROLLER_CONNECT_TIMEOUT)
       s.connect((args.controller_ip, args.controller_port))
       logging.debug('Connected to SDN controller.')
+      return s
     except socket.error, exc:
       return None
-    return s
 
   connected = False
+  len_buf = None
+  msg_len = None
+  msg = None
   while not done_event.is_set():
     if not connected:
+      len_buf = None
+      msg_len = None
+      msg = None
       s = connect()
       if not s:
         time.sleep(CONTROLLER_WAIT_CONNECT)
@@ -272,18 +305,46 @@ def update_worker(done_event, args):
       report_str = report.SerializeToString()
       report_len = struct.pack('>L', len(report_str))
       bytes_sent = s.send(report_len + report_str)
-      if bytes_sent == 0:
-        logging.debug('Failed to send update message. Reconnecting...')
-        s.close()
-        connected = False
+      if bytes_sent <= 0:
+        raise socket.error
+      else:
+        logging.debug('Sent report to controller.')
     except socket.error, exc:
-      logging.debug('Update send failed. Reconnecting...')
+      logging.debug('Failed to send update message. Reconnecting...')
       s.close()
       connected = False
+      continue
 
-    if bytes_sent > 0:
-      logging.debug('Sent report to controller.')
-      time.sleep(CONTROLLER_UPDATE_INTERVAL)
+    last_send_time = time.time()
+    timeout = CONTROLLER_UPDATE_INTERVAL
+    try:
+      while timeout > 0:
+        if not len_buf:
+          # Assume short length message will not be truncated.
+          time_elapsed = time.time() - last_send_time
+          timeout = CONTROLLER_UPDATE_INTERVAL - time_elapsed
+          len_buf, ignored = socket_read_n_time(s, 4, None, timeout)
+          if len(len_buf) == 0:
+            logging.debug('Lost connection to controller. Reconnecting...')
+            s.close()
+            connected = False
+            break
+          msg_len = struct.unpack('>L', len_buf)[0]
+
+        time_elapsed = time.time() - last_send_time
+        timeout = CONTROLLER_UPDATE_INTERVAL - time_elapsed
+        msg, msg_len = socket_read_n_time(s, msg_len, msg, timeout)
+        if msg_len == 0:
+          # Handle complete message, then reset variables.
+          len_buf = None
+          msg_len = None
+          msg = None
+    except socket.timeout, exc:
+      pass
+    except socket.error, exc:
+      logging.debug('Socket error during receive from controller. Reconnecting...')
+      s.close()
+      connected = False
 
 
 def main():
@@ -319,14 +380,14 @@ def main():
   threads.extend([t1, t2, t3])
 
   try:
-    while True:
+    while not done_event.is_set():
       time.sleep(0.1)
   except KeyboardInterrupt:
-    print 'Closing...'
     done_event.set()
-    for t in threads:
-      t.join()
 
+  print '\nClosing...'
+  for t in threads:
+    t.join()
 
 if __name__ == '__main__':
   main()
