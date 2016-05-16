@@ -81,7 +81,8 @@ def handle_recv_msg(msg, host_addr, own_addrs, res, bcast_ifaces, interface_name
     response.timestamp = update.timestamp
     response.utype = update_pb2.Update.RESPONSE
     for bcast_iface in bcast_ifaces:
-      response.ip = bcast_iface['ipv4']['addr']
+      #response.ip = bcast_iface['ipv4']['addr']
+      response.ip = update.ip
       bcast_addr = (bcast_iface['ipv4']['broadcast'], BROADCAST_PORT)
       res.sendto(response.SerializeToString(), bcast_addr)
 
