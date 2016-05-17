@@ -27,3 +27,15 @@ message Report {
   optional string alias = 5;
   optional string interfaces = 6;
 }
+
+message RouteChange {
+  enum Command {
+    ADD = 0;
+    DELETE = 1;
+  }
+
+  required Command command = 1;
+  required string destination = 2;
+  required string interface = 3;
+  optional string gateway = 4;
+}
