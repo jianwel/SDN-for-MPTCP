@@ -115,9 +115,6 @@ class Network:
       for neighbor, link in node.neighbors.iteritems():
         graph += '  %s \t %s\t rtt=%.6f\n' % (str(neighbor), str(link), link.rtt)
 
-    #for node in self.nodes:
-    #  graph += str(node) + ' -> ' + ', '.join([str(n) for n in node.neighbors]) + '\n'
-
     self.nodes_lock.release()
 
     return graph

@@ -23,7 +23,7 @@ def run(args):
         os.mkdir(args.output_dir)
 
     # tcpdump
-    command = ('sudo tcpdump -i {interface} -s 65535 -n -B 4096 '
+    command = ('sudo tcpdump -i {interface} -s 96 -n -B 4096 '
                '-w {pcap_file} -c {packet_count}').format(
         interface=args.interface,
         pcap_file=os.path.join(args.output_dir, args.pcap_file),
@@ -116,7 +116,7 @@ def main():
     parser.add_argument('interface', help='interface to capture')
     parser.add_argument('-p', '--pcap_file', default='tcpdump.pcap',
                         help='pcap file to create and analyze')
-    parser.add_argument('-c', '--packet-count', type=int, default=10000,
+    parser.add_argument('-c', '--packet-count', type=int, default=1000,
                         help='tcpdump packet count')
     parser.add_argument('-t', '--run-time', type=int, default=2,
                         help='tcpdump run time')
