@@ -38,6 +38,16 @@ DEBUG_FILEPATH = '/tmp/sdnclient.log'
 
 neighbors = {} # IP -> {alias, interface, last_refresh, rtt, response_count}
 
+''' Return True if string is a number.
+'''
+def is_number(s):
+  try:
+    float(s)
+    return True
+  except ValueError:
+    return False
+
+
 ''' Construct and return routing table object.
 '''
 def get_routes():
@@ -81,7 +91,6 @@ def handle_recv_msg(msg, host_addr, own_addrs, res, bcast_ifaces, interface_name
     response.timestamp = update.timestamp
     response.utype = update_pb2.Update.RESPONSE
     for bcast_iface in bcast_ifaces:
-      #response.ip = bcast_iface['ipv4']['addr']
       response.ip = update.ip
       bcast_addr = (bcast_iface['ipv4']['broadcast'], BROADCAST_PORT)
       res.sendto(response.SerializeToString(), bcast_addr)
@@ -134,7 +143,7 @@ def listen_worker(done_event):
       if (addr & mask) == (net & mask):
         bcast_ifaces.append({'name': iface, 'ipv4': ipv4})
 
-  # Create broadcast sockets for each inteface
+  # Create broadcast sockets for each interface.
   bcast_pairs = []  # (socket, interface name)
   for iface in bcast_ifaces:
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -148,7 +157,7 @@ def listen_worker(done_event):
 
   while not done_event.is_set():
     try:
-      # Read messages on each interface
+      # Read messages on each interface.
       for s, interface_name in bcast_pairs:
         read_ready, _, _ = select.select([s], [], [], 0)
         if read_ready:
@@ -157,7 +166,7 @@ def listen_worker(done_event):
             continue
           handle_recv_msg(msg, host_addr, own_addrs, res, bcast_ifaces, interface_name)
 
-      # Timeout unheard neighbors
+      # Timeout unheard neighbors.
       cur_time = time.time()
       addrs_expired = []
       for addr, neighbor in neighbors.iteritems():
@@ -167,11 +176,9 @@ def listen_worker(done_event):
       for addr in addrs_expired:
           logging.debug('Lost neighbor: {0}'.format(addr))
           del neighbors[addr]
-
-    except (KeyboardInterrupt, SystemExit):  # needed?
-      raise
     except:
       traceback.print_exc()
+      done_event.set()
 
 
 ''' Periodically send QUERY to all neighbors.
@@ -208,10 +215,9 @@ def query_worker(done_event, args):
         bcast_addr = (bcast_iface['ipv4']['broadcast'], BROADCAST_PORT)
         s.sendto(query.SerializeToString(), bcast_addr)
       time.sleep(QUERY_INTERVAL)
-    except (KeyboardInterrupt, SystemExit):  # needed?
-      raise
     except:
       traceback.print_exc()
+      done_event.set()
 
 
 # http://eli.thegreenplace.net/2011/08/02/length-prefix-framing-for-protocol-buffers
@@ -269,7 +275,7 @@ def update_worker(done_event, args):
         continue
       connected = True
 
-    # Construct neighbor report
+    # Construct neighbor report.
     report = update_pb2.Report()
     report.timestamp = '{:.6f}'.format(time.time())
     if len(args.alias) > 0:
@@ -284,7 +290,7 @@ def update_worker(done_event, args):
       if len(neighbors[ip]['interface']) > 0:
         neighbor.interface = neighbors[ip]['interface']
 
-    # Add flow info
+    # Add flow info.
     json_file_path = os.path.join(args.output_dir, args.json_file)
     if os.path.exists(json_file_path):
       with open(json_file_path, 'r') as json_file:
@@ -292,7 +298,7 @@ def update_worker(done_event, args):
         json_str = json.dumps(json_obj)
         report.flows = json_str
 
-    # Add routes info
+    # Add routes info.
     routes = get_routes()
     json_str = json.dumps(routes)
     report.routes = json_str
@@ -348,16 +354,122 @@ def update_worker(done_event, args):
       connected = False
 
 
+''' Run tcpdump and captcp continuously.
+'''
+def flow_worker(done_event, args):
+  pcap_file = 'tcpdump.pcap'
+  stats_file = 'stats.dat'
+
+  output_dir = args.output_dir
+  if not os.path.isabs(output_dir):
+    output_dir = os.path.abspath(os.path.join(file_path, output_dir))
+
+  if not os.path.isdir(output_dir):
+    os.mkdir(output_dir)
+
+  while not done_event.is_set():
+    try:
+      # Run tcpdump.
+      command = ('sudo tcpdump -i any -s 96 -n -B 4096 '
+             '-w {pcap_file} -c {packet_count} tcp').format(
+        pcap_file=os.path.join(output_dir, pcap_file),
+        packet_count=args.packet_count)
+      with open(os.devnull, 'w') as devnull:
+        ps = subprocess.Popen(shlex.split(command), stderr=subprocess.PIPE)
+        time.sleep(args.run_time)
+        ps.terminate()
+        for line in ps.stderr:
+          m = re.match('(\d+) packets captured', line)
+          if m:
+            packets_captured = int(m.group(1))
+
+      # Run captcp.
+      json_obj = {}
+      stats_path = os.path.join(output_dir, stats_file)
+      if packets_captured > 0:
+        with open(stats_path, 'w') as stat, open(os.devnull, 'w') as devnull:
+          command = ('sudo captcp statistic {pcap_file}').format(
+            pcap_file=os.path.join(output_dir, pcap_file))
+          ps = subprocess.Popen(shlex.split(command), stderr=devnull,
+            stdout=subprocess.PIPE)
+
+          command = ('sed -r -e "s/\x1B\[([0-9]{1,2}(;[0-9]{1,2})*)?[m|K]//g" '
+                 '-e "s/^\s*//" -e "s/\s*$//" '
+                 '-e "s/\( */(/" -e "s/\s{2}\s*/  /g"')
+          subprocess.check_call(shlex.split(command), stdin=ps.stdout,
+            stdout=stat)
+
+        with open(stats_path, 'r') as stat:
+          lines = (line.strip() for line in stat)
+          lines = (line for line in lines if line)
+          current = json_obj
+          for line in lines:
+            fields = re.split('  |: ', line.strip())
+            if fields[0] == 'General:':
+              current = {}
+              json_obj['general'] = current
+            elif fields[0] == 'Network Layer' or \
+                fields[0] == 'Transport Layer':
+              pascalcased = ''.join(
+                x for x in fields[0].title() if not x.isspace())
+              camelcased = pascalcased[0].lower() + pascalcased[1:]
+              tmp = {}
+              json_obj['general'][camelcased] = tmp
+              current = tmp
+            elif fields[0] == 'Connections:':
+              json_obj['connections'] = []
+            elif is_number(fields[0]) and 'connections' in json_obj:
+              current = {'src2dst': {}, 'dst2src': {}}
+              json_obj['connections'].append(current)
+            elif len(fields) == 2:
+              m = re.match(r'^Flow \d+.(\d+)', fields[0])
+              if m:
+                if m.group(1) == '1':
+                  current['src2dst']['flow'] = fields[1]
+                elif m.group(1) == '2':
+                  current['dst2src']['flow'] = fields[1]
+              else:
+                pascalcased = ''.join(
+                  x for x in fields[0].title() if not x.isspace())
+                camelcased = pascalcased[0].lower() + pascalcased[1:]
+                current[camelcased] = fields[1].strip()
+            elif len(fields) == 4:
+              pascalcased = ''.join(
+                x for x in fields[0].title() if not x.isspace())
+              camelcased = pascalcased[0].lower() + pascalcased[1:]
+              current['src2dst'][camelcased] = fields[1].strip()
+
+              pascalcased = ''.join(
+                x for x in fields[2].title() if not x.isspace())
+              camelcased = pascalcased[0].lower() + pascalcased[1:]
+              current['dst2src'][camelcased] = fields[3].strip()
+
+      with open(os.path.join(output_dir, args.json_file), 'w') as json_file:
+        json.dump(json_obj, json_file, sort_keys = True, indent = 4, ensure_ascii = False)
+        if os.path.exists(stats_path):
+          os.remove(stats_path)
+    except:
+      traceback.print_exc()
+      done_event.set()
+
+
 def main():
+  if os.getuid() != 0:
+    sys.exit('must be run as root')
+
   parser = argparse.ArgumentParser()
   parser.add_argument('-c', '--controller-ip', default=CONTROLLER_IP, help='controller IP address')
   parser.add_argument('-p', '--controller-port', default=CONTROLLER_PORT, help='controller port')
   parser.add_argument('-d', '--debug-file', default=DEBUG_FILEPATH, help='debug file')
   parser.add_argument('-D', '--disable-debug', action='store_true', help='disable debug logging')
   parser.add_argument('-P', '--print-stdout', action='store_true', help='print debug info to stdout')
-  parser.add_argument('-o', '--output-dir', default='output', help='captcp output directory')
+  parser.add_argument('-o', '--output-dir', default='../output', help='captcp output directory')
   parser.add_argument('-j', '--json-file', default='captcp.json', help='captcp json file')
   parser.add_argument('-a', '--alias', default='', help='unique alias in network')
+  parser.add_argument('-t', '--run-time', type=int, default=2,
+                      help='tcpdump run time')
+  parser.add_argument('-k', '--packet-count', type=int, default=1000,
+                      help='tcpdump packet count')
   args = parser.parse_args()
 
   if not args.disable_debug:
@@ -378,7 +490,9 @@ def main():
   t2.start()
   t3 = threading.Thread(target=update_worker, args=[done_event, args])
   t3.start()
-  threads.extend([t1, t2, t3])
+  t4 = threading.Thread(target=flow_worker, args=[done_event, args])
+  t4.start()
+  threads.extend([t1, t2, t3, t4])
 
   try:
     while not done_event.is_set():
