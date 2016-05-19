@@ -26,12 +26,11 @@ NETWORK_REFRESH_ITVL = 5
 
 DEBUG_FILEPATH = '/tmp/sdncontroller.txt'
 
-
 ''' Network class defining a graph of nodes '''
 class Network:
   def __init__(self):
     self.nodes = []
-    self.nodes_dict = {}  # Alias -> Node instance
+    self.nodes_dict = {} # Alias -> Node instance
     self.nodes_lock = threading.Lock()
 
   def __str__(self):
@@ -66,9 +65,10 @@ class Network:
         if neighbor.HasField('interface'):
           neighbor_interface = neighbor.interface
 
-        if neighbor_alias in self.nodes_dict:  # neighbor must already be known by controller
+        # Neighbor must already be known by controller.
+        if neighbor_alias in self.nodes_dict:
           neighbor_node = self.nodes_dict[neighbor_alias]
-          node.update_neighbor(neighbor_node, neighbor_interface, neighbor.ip, float(neighbor.rtt)) 
+          node.update_neighbor(neighbor_node, neighbor_interface, neighbor.ip, float(neighbor.rtt))
 
     self.nodes_lock.release()
 
@@ -179,7 +179,7 @@ def socket_read_n(sock, n):
     return buf
 
 def receive_worker(conn, addr, network, done_event):
-  # Handle a single client
+  # Handle a single client.
   while not done_event.is_set():
     try:
       len_buf = socket_read_n(conn, 4)
@@ -206,15 +206,16 @@ def receive_worker(conn, addr, network, done_event):
       logging.debug('Lost connection from {0}'.format(addr))
       return
 
+
 def server_worker(done_event, network, args):
-  # Initialize server for receiving updates
+  # Initialize server for receiving updates.
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
   s.bind((args.controller_ip, args.controller_port))
   s.settimeout(5)
   s.listen(5)
   logging.debug('Listening on port {0} for incoming connections'.format(args.controller_port))
 
-  # Create one receive worker thread for each client
+  # Create one receive worker thread for each client.
   clients = []
   while not done_event.is_set():
     if len(clients) < 5:
@@ -232,16 +233,17 @@ def server_worker(done_event, network, args):
       t.start()
       clients.append((t, conn, addr))
 
-    # Refresh client list for alive threads
+    # Refresh client list for alive threads.
     done_threads = []
     for t, conn, _ in clients:
       if not t.isAlive():
         conn.close()
         done_threads.append(t)
     clients = [c for c in clients if c[0] not in done_threads]
-    time.sleep(0)  # yield
+    # Yield thread.
+    time.sleep(0)
 
-  # Refresh network
+  # Refresh network.
   for t, conn, _ in clients:
     conn.close()
     t.join()
@@ -290,12 +292,12 @@ def main():
   done_event = threading.Event()
   threads = []
   t1 = threading.Thread(target=server_worker, args=[done_event, network, args])
-  t1.start()
   t2 = threading.Thread(target=network_refresh_worker, args=[done_event, network])
-  t2.start()
   t3 = threading.Thread(target=input_worker, args=[done_event, network])
-  t3.start()
   threads.extend([t1, t2, t3])
+
+  for t in threads:
+    t.start()
 
   try:
     while not done_event.is_set():

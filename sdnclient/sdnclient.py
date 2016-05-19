@@ -118,13 +118,6 @@ def handle_recv_msg(msg, host_addr, own_addrs, res, bcast_ifaces, interface_name
     that address from the known list of neighbors.
 '''
 def listen_worker(done_event):
-  # http://www.java2s.com/Code/Python/Network/UDPBroadcastServer.htm
-  '''s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-  s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-  s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-  s.setblocking(0)
-  s.bind(('', BROADCAST_PORT))'''
-
   res = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   res.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
   res.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
@@ -146,14 +139,15 @@ def listen_worker(done_event):
         bcast_ifaces.append({'name': iface, 'ipv4': ipv4})
 
   # Create broadcast sockets for each interface.
-  bcast_pairs = []  # (socket, interface name)
+  bcast_pairs = [] # (socket, interface name)
   for iface in bcast_ifaces:
+    # http://www.java2s.com/Code/Python/Network/UDPBroadcastServer.htm
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     s.setblocking(0)
     s.bind((iface['ipv4']['broadcast'], BROADCAST_PORT))
-    bcast_pairs.append( (s, iface['name']) )
+    bcast_pairs.append((s, iface['name']))
 
   logging.debug('Listening on port {0}'.format(BROADCAST_PORT))
 
@@ -361,15 +355,15 @@ def update_worker(done_event, args):
             next_hop_opts += 'via ' + route_change.gateway + ' '
 
           if route_cmd == '' or next_hop_opts == '':
-            logging.debug('Ignoring Invalid or unimplemented route change message...')
+            logging.debug('Ignoring invalid or unimplemented route change message...')
           else:
             command = ('sudo ip route {route_cmd} {dst} {next_hop_opts}').format(
               route_cmd=route_cmd,
               dst=route_change.destination,
               next_hop_opts=next_hop_opts)
             with open(os.devnull, 'w') as devnull:
-              # TODO: Return status to controller
-              subprocess.call(shlex.split(command), stderr=devnull)
+              rc = subprocess.call(shlex.split(command), stderr=devnull)
+              logging.debug(('Executed command "{command}" with return code {rc}.').format(command=command, rc=rc))
 
           len_buf = None
           msg_len = None
