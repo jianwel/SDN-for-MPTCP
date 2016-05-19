@@ -62,6 +62,7 @@ def get_routes():
 
   return routes
 
+
 ''' Construct and return interfaces object.
 '''
 def get_interfaces():
@@ -72,6 +73,7 @@ def get_interfaces():
       interfaces[iface] = ifaddr[netifaces.AF_INET][0]
 
   return interfaces
+
 
 ''' Handle received messages from neighbors.
 '''
@@ -343,6 +345,32 @@ def update_worker(done_event, args):
         msg, msg_len = socket_read_n_time(s, msg_len, msg, timeout)
         if msg_len == 0:
           # Handle complete message, then reset variables.
+          route_change = update_pb2.RouteChange()
+          route_change.ParseFromString(msg)
+
+          route_cmd = ''
+          if route_change.command == update_pb2.RouteChange.ADD:
+            route_cmd = 'add'
+          elif route_change.command == update_pb2.RouteChange.DELETE:
+            route_cmd = 'delete'
+
+          next_hop_opts = ''
+          if route_change.HasField('interface'):
+            next_hop_opts += 'dev ' + route_change.interface + ' '
+          if route_change.HasField('gateway'):
+            next_hop_opts += 'via ' + route_change.gateway + ' '
+
+          if route_cmd == '' or next_hop_opts == '':
+            logging.debug('Ignoring Invalid or unimplemented route change message...')
+          else:
+            command = ('sudo ip route {route_cmd} {dst} {next_hop_opts}').format(
+              route_cmd=route_cmd,
+              dst=route_change.destination,
+              next_hop_opts=next_hop_opts)
+            with open(os.devnull, 'w') as devnull:
+              # TODO: Return status to controller
+              subprocess.call(shlex.split(command), stderr=devnull)
+
           len_buf = None
           msg_len = None
           msg = None
@@ -485,14 +513,13 @@ def main():
   done_event = threading.Event()
   threads = []
   t1 = threading.Thread(target=listen_worker, args=[done_event])
-  t1.start()
   t2 = threading.Thread(target=query_worker, args=[done_event, args])
-  t2.start()
   t3 = threading.Thread(target=update_worker, args=[done_event, args])
-  t3.start()
   t4 = threading.Thread(target=flow_worker, args=[done_event, args])
-  t4.start()
   threads.extend([t1, t2, t3, t4])
+
+  for t in threads:
+    t.start()
 
   try:
     while not done_event.is_set():
