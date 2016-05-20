@@ -77,9 +77,9 @@ def get_interfaces():
 
 ''' Handle received messages from neighbors.
 '''
-def handle_recv_msg(msg, host_addr, own_addrs, res, bcast_ifaces, interface_name):
+def handle_recv_msg(msg, host_addr, own_addrs, bcast_iface):
   if host_addr not in neighbors:
-    neighbors[host_addr] = {'alias': '', 'interface': interface_name, 'last_refresh': time.time(), 'rtt': 0.0, 'response_count': 0}
+    neighbors[host_addr] = {'alias': '', 'interface': bcast_iface['name'], 'last_refresh': time.time(), 'rtt': 0.0, 'response_count': 0}
   else:
     neighbors[host_addr]['last_refresh'] = time.time()
 
@@ -88,14 +88,12 @@ def handle_recv_msg(msg, host_addr, own_addrs, res, bcast_ifaces, interface_name
   if update.utype == update_pb2.Update.QUERY:
     logging.debug('Got query! {0}'.format(host_addr))
 
-    bcast_addr = ('<broadcast>', BROADCAST_PORT)
     response = update_pb2.Update()
     response.timestamp = update.timestamp
     response.utype = update_pb2.Update.RESPONSE
-    for bcast_iface in bcast_ifaces:
-      response.ip = update.ip
-      bcast_addr = (bcast_iface['ipv4']['broadcast'], BROADCAST_PORT)
-      res.sendto(response.SerializeToString(), bcast_addr)
+    response.ip = update.ip
+    response_addr = (bcast_iface['ipv4']['broadcast'], BROADCAST_PORT)
+    bcast_iface['socket'].sendto(response.SerializeToString(), response_addr)
 
     if update.HasField('alias'):
       neighbors[host_addr]['alias'] = update.alias
@@ -118,11 +116,6 @@ def handle_recv_msg(msg, host_addr, own_addrs, res, bcast_ifaces, interface_name
     that address from the known list of neighbors.
 '''
 def listen_worker(done_event):
-  res = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-  res.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-  res.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-  res.setblocking(0)
-
   # http://stackoverflow.com/questions/819355/how-can-i-check-if-an-ip-is-in-a-network-in-python
   own_addrs = []
   bcast_ifaces = []
@@ -140,27 +133,28 @@ def listen_worker(done_event):
 
   # Create broadcast sockets for each interface.
   bcast_pairs = [] # (socket, interface name)
-  for iface in bcast_ifaces:
+  for bcast_iface in bcast_ifaces:
     # http://www.java2s.com/Code/Python/Network/UDPBroadcastServer.htm
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     s.setblocking(0)
-    s.bind((iface['ipv4']['broadcast'], BROADCAST_PORT))
-    bcast_pairs.append((s, iface['name']))
+    s.bind((bcast_iface['ipv4']['broadcast'], BROADCAST_PORT))
+    bcast_iface['socket'] = s
 
   logging.debug('Listening on port {0}'.format(BROADCAST_PORT))
 
   while not done_event.is_set():
     try:
       # Read messages on each interface.
-      for s, interface_name in bcast_pairs:
+      for bcast_iface in bcast_ifaces:
+        s = bcast_iface['socket']
         read_ready, _, _ = select.select([s], [], [], 0)
         if read_ready:
           msg, (host_addr, port) = s.recvfrom(1024)
           if host_addr in own_addrs:
             continue
-          handle_recv_msg(msg, host_addr, own_addrs, res, bcast_ifaces, interface_name)
+          handle_recv_msg(msg, host_addr, own_addrs, bcast_iface)
 
       # Timeout unheard neighbors.
       cur_time = time.time()
