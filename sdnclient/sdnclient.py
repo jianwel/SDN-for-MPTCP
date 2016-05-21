@@ -115,24 +115,9 @@ def handle_recv_msg(msg, host_addr, own_addrs, bcast_iface):
     If a neighbor isn't heard from in QUERY_TIMEOUT seconds, remove
     that address from the known list of neighbors.
 '''
-def listen_worker(done_event):
-  # http://stackoverflow.com/questions/819355/how-can-i-check-if-an-ip-is-in-a-network-in-python
-  own_addrs = []
-  bcast_ifaces = []
-  for iface in netifaces.interfaces():
-    ifaddr = netifaces.ifaddresses(iface)
-    if netifaces.AF_INET in ifaddr:
-      ipv4 = ifaddr[netifaces.AF_INET][0]
-      addr_s = ipv4['addr']
-      own_addrs.append(addr_s)
-      addr = struct.unpack('>L', socket.inet_aton(addr_s))[0]
-      net = struct.unpack('>L', socket.inet_aton(BROADCAST_NET_S))[0]
-      mask = (0xffffffff << (32 - BROADCAST_MASK_BITS)) & 0xffffffff
-      if (addr & mask) == (net & mask):
-        bcast_ifaces.append({'name': iface, 'ipv4': ipv4})
-
+def listen_worker(done_event, bcast_ifaces):
   # Create broadcast sockets for each interface.
-  bcast_pairs = [] # (socket, interface name)
+  own_addrs = []
   for bcast_iface in bcast_ifaces:
     # http://www.java2s.com/Code/Python/Network/UDPBroadcastServer.htm
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -141,6 +126,7 @@ def listen_worker(done_event):
     s.setblocking(0)
     s.bind((bcast_iface['ipv4']['broadcast'], BROADCAST_PORT))
     bcast_iface['socket'] = s
+    own_addrs.append(bcast_iface['ipv4']['addr'])
 
   logging.debug('Listening on port {0}'.format(BROADCAST_PORT))
 
@@ -173,24 +159,11 @@ def listen_worker(done_event):
 
 ''' Periodically send QUERY to all neighbors.
 '''
-def query_worker(done_event, args):
+def query_worker(done_event, args, bcast_ifaces):
   s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
   s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
   s.setblocking(0)
-
-  # http://stackoverflow.com/questions/819355/how-can-i-check-if-an-ip-is-in-a-network-in-python
-  bcast_ifaces = []
-  for iface in netifaces.interfaces():
-    ifaddr = netifaces.ifaddresses(iface)
-    if netifaces.AF_INET in ifaddr:
-      ipv4 = ifaddr[netifaces.AF_INET][0]
-      addr_s = ipv4['addr']
-      addr = struct.unpack('>L', socket.inet_aton(addr_s))[0]
-      net = struct.unpack('>L', socket.inet_aton(BROADCAST_NET_S))[0]
-      mask = (0xffffffff << (32 - BROADCAST_MASK_BITS)) & 0xffffffff
-      if (addr & mask) == (net & mask):
-        bcast_ifaces.append({'name': iface, 'ipv4': ipv4})
 
   while not done_event.is_set():
     try:
@@ -498,10 +471,23 @@ def main():
     streamHandler.setLevel(logging.DEBUG)
     rootLogger.addHandler(streamHandler)
 
+  # http://stackoverflow.com/questions/819355/how-can-i-check-if-an-ip-is-in-a-network-in-python
+  bcast_ifaces = []
+  for iface in netifaces.interfaces():
+    ifaddr = netifaces.ifaddresses(iface)
+    if netifaces.AF_INET in ifaddr:
+      ipv4 = ifaddr[netifaces.AF_INET][0]
+      addr_s = ipv4['addr']
+      addr = struct.unpack('>L', socket.inet_aton(addr_s))[0]
+      net = struct.unpack('>L', socket.inet_aton(BROADCAST_NET_S))[0]
+      mask = (0xffffffff << (32 - BROADCAST_MASK_BITS)) & 0xffffffff
+      if (addr & mask) == (net & mask):
+        bcast_ifaces.append({'name': iface, 'ipv4': ipv4})
+
   done_event = threading.Event()
   threads = []
-  t1 = threading.Thread(target=listen_worker, args=[done_event])
-  t2 = threading.Thread(target=query_worker, args=[done_event, args])
+  t1 = threading.Thread(target=listen_worker, args=[done_event, bcast_ifaces])
+  t2 = threading.Thread(target=query_worker, args=[done_event, args, bcast_ifaces])
   t3 = threading.Thread(target=update_worker, args=[done_event, args])
   t4 = threading.Thread(target=flow_worker, args=[done_event, args])
   threads.extend([t1, t2, t3, t4])
