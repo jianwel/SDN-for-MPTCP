@@ -274,11 +274,8 @@ def update_worker(done_event, args):
     try:
       report_str = report.SerializeToString()
       report_len = struct.pack('>L', len(report_str))
-      bytes_sent = s.send(report_len + report_str)
-      if bytes_sent <= 0:
-        raise socket.error
-      else:
-        logging.debug('Sent report to controller.')
+      s.send(report_len + report_str)
+      logging.debug('Sent report to controller.')
     except socket.error, exc:
       logging.debug('Failed to send update message. Reconnecting...')
       s.close()
@@ -327,7 +324,7 @@ def update_worker(done_event, args):
             command = ('sudo ip route {route_cmd} {dst} {next_hop_opts}').format(
               route_cmd=route_cmd,
               dst=route_change.destination,
-              next_hop_opts=next_hop_opts)
+              next_hop_opts=next_hop_opts).strip()
             with open(os.devnull, 'w') as devnull:
               rc = subprocess.call(shlex.split(command), stderr=devnull)
               logging.debug(('Executed command "{command}" with return code {rc}.').format(command=command, rc=rc))

@@ -12,6 +12,7 @@ import time
 import argparse
 import logging
 import shlex
+import traceback
 
 file_path = os.path.dirname(sys.argv[0])
 protobuf_path = os.path.abspath(os.path.join(file_path, '../protobuf'))
@@ -118,6 +119,22 @@ class Network:
     self.nodes_lock.release()
 
     return graph
+
+  def send_from_node(self, alias, message):
+    res = ''
+
+    self.nodes_lock.acquire(True)
+    if alias in self.nodes_dict:
+      try:
+        self.nodes_dict[alias].socket.send(message)
+        res = 'Sent message to ' + alias + '.'
+      except:
+        res = 'Failed to send message to ' + alias + '.'
+    else:
+      res = alias + ' not found in network.'
+    self.nodes_lock.release()
+
+    return res
 
 
 ''' Node class representing a client in the network '''
@@ -257,15 +274,48 @@ def network_refresh_worker(done_event, network):
 
 
 def input_worker(done_event, network):
+  parser = argparse.ArgumentParser('')
+  subparsers = parser.add_subparsers(dest='subparser')
+  exit_parser = subparsers.add_parser('exit')
+  route_parser = subparsers.add_parser('route')
+  route_parser.add_argument('command', choices=['add', 'delete'])
+  route_parser.add_argument('node')
+  route_parser.add_argument('destination')
+  route_parser.add_argument('-i', '--interface')
+  route_parser.add_argument('-g', '--gateway')
+
   while not done_event.is_set():
     cmd = shlex.split(raw_input('> ').strip())
     if len(cmd) <= 0:
       continue
-    elif cmd[0] == 'exit':
-      done_event.set()
-      break
-    else:
-      print 'usage:\n'
+
+    try:
+      args = parser.parse_args(cmd)
+      if args.subparser == 'exit':
+        done_event.set()
+      elif args.subparser == 'route':
+        route_change = update_pb2.RouteChange()
+
+        if args.command == 'add':
+          route_change.command = update_pb2.RouteChange.ADD;
+        elif args.command == 'delete':
+          route_change.command = update_pb2.RouteChange.DELETE;
+
+        route_change.destination = args.destination
+
+        if args.interface:
+          route_change.interface = args.interface
+        if args.gateway:
+          route_change.gateway
+
+        route_change_str = route_change.SerializeToString()
+        route_change_len = struct.pack('>L', len(route_change_str))
+        message = route_change_len + route_change_str
+        res = network.send_from_node(args.node, message)
+        logging.debug(res)
+    except:
+      traceback.print_exc()
+      pass
 
 
 def main():
