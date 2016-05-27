@@ -13,6 +13,7 @@ import argparse
 import logging
 import shlex
 import traceback
+import heapq
 
 file_path = os.path.dirname(sys.argv[0])
 protobuf_path = os.path.abspath(os.path.join(file_path, '../protobuf'))
@@ -175,9 +176,149 @@ class Link:
     self.interface = interface
     self.to_ip = to_ip
     self.rtt = rtt
+    self.capacity = 1.0  #TODO: Obtain from clients
 
   def __str__(self):
     return '%s via %s' % (self.to_ip, self.interface)
+
+
+''' Returns a dictionary key for an edge as an ordered pair of nodes '''
+def edge_key(node_a, node_b):
+  return (node_a, node_b) if node_a < node_b else (node_b, node_a)
+
+
+''' Run modified Dijkstra to find path with highest Q gain in the network '''
+def find_best_path(network, Q, start, end):
+  if not (start and end):
+    return None
+
+  # Initialize network
+  for node in network.nodes:
+    node.visited = False
+    node.previous = None
+    node.hop_count = 0
+    node.gain = 0
+  start.gain = float('inf')
+  
+  # Create max heap of unvisited nodes
+  unvisited = [(-n.gain, n) for n in network.nodes]
+  heapq.heapify(unvisited)
+  
+  while len(unvisited) > 0:
+    next_pair = heapq.heappop(unvisited)
+    current = next_pair[1]
+    current.visited = True
+    
+    for neighbor, link in current.neighbors.iteritems():
+      if neighbor.visited:
+        continue
+      new_gain = min(current.gain, Q[edge_key(current, neighbor)])
+      new_hop_count = current.hop_count + 1
+      if new_gain > neighbor.gain or (new_gain == neighbor.gain and new_hop_count < neighbor.hop_count):
+        neighbor.gain = new_gain
+        neighbor.hop_count = new_hop_count
+        neighbor.previous = current
+        
+    # Rebuild max heap
+    unvisited = [(-n.gain, n) for n in network.nodes if not n.visited]
+    heapq.heapify(unvisited)
+    
+  # Build route backwards from destination
+  route = [end]
+  current = end
+  while current != start:
+    route = [current.previous] + route
+    current = current.previous
+  return route, end.gain
+
+''' Given network and list of flows, assign routes to flows while balancing network utilization '''
+def balance_network(network):
+  #  1. Get list of flows = {(source, destination)}
+  #  2. Group flows by destination
+  #  3. For each group in random order, for each flow in random order, find best route r = {(source, ..., destination)}
+  #  4. Apply route changes to nodes
+  
+  logging.debug("--- Begin flow routing ---")
+  
+  #TODO: Parse flow table to obtain flows
+  class Flow:
+    def __init__(self, id, start, end):
+      self.id = id
+      self.start = start
+      self.end = end
+  flows = []
+  
+  #TODO: Find maximum link capacity in network
+  c_max = 1.0
+  
+  flow_routes = {}
+  flow_route_Q = {}      # Flow instance -> Q(r)
+  edge_flows = {}        # Edge -> Array of flows
+  edge_capacities = {}   # Edge -> Capacity
+  Q = {}                 # Edge -> Q(e)
+  
+  # Initialize Q
+  for node in network.nodes:
+    for neighbor, link in node.neighbors.iteritems():
+      Q[edge_key(node, neighbor)] = link.capacity / c_max
+  
+  #TODO: Group flows by destination and choose randomly
+  for i in range(len(flows)):
+    cur_flow = flows[i]
+    
+    # Update Q for next flow
+    if i > 0:
+      Q = {}
+      for node in network.nodes:
+        for neighbor, link in node.neighbors.iteritems():
+          key = edge_key(node, neighbor)
+          if key in Q:
+            continue  # Q(e) already set
+          
+          edge_capacities[key] = capacity
+          
+          # Compute remaining capacity from other flows using this edge
+          utilization = 0
+          flow_count = 1  # If new flow uses this edge
+          if key in edge_flows:
+            for flow in edge_flows[key]:
+              utilization += flow_route_Q[key]
+              flow_count += 1
+          q_remaining = capacity - utilization
+          
+          if flow_count > 1:
+            fair_share = capacity / (c_max * flow_count)
+          else:
+            fair_share = capacity / c_max
+            
+          Q[key] = max(q_remaining, fair_share)
+          
+    # Find best path using Q
+    route, route_Q = find_best_path(network, Q, cur_flow.start, cur_flow.end)
+    flow_routes[cur_flow] = route
+    
+    # Update flow utilization and edge assignments
+    flow_route_Q[cur_flow] = route_Q
+    for i in range(len(route) - 1):
+      key = edge_key(route[i], route[i+1])
+      
+      # Update Q(r) of other flows if we introduce a new bottleneck by adding this flow to the edge
+      if key in edge_flows:
+        num_flows = len(edge_flows[key]) + 1
+        fair_share = edge_capacities[key] / (c_max * num_flows)
+        for flow in edge_flows[key]:
+          if fair_share < flow_route_Q[flow]:
+            flow_route_Q[flow] = fair_share
+      
+      # Add own flow to route
+      if key in edge_flows:
+        edge_flows[key] += [cur_flow]
+      else:
+        edge_flows[key] = [cur_flow]
+
+  #TODO: Process flow_routes for each flow and update routing tables
+  
+  logging.debug("--- Flow routing complete ---")
 
 
 # http://eli.thegreenplace.net/2011/08/02/length-prefix-framing-for-protocol-buffers
@@ -194,6 +335,7 @@ def socket_read_n(sock, n):
       buf += data
       n -= len(data)
     return buf
+
 
 def receive_worker(conn, addr, network, done_event):
   # Handle a single client.
@@ -270,13 +412,15 @@ def network_refresh_worker(done_event, network):
   while not done_event.is_set():
     time.sleep(NETWORK_REFRESH_ITVL)
     network.refresh_node_list()
-    logging.debug(network)
+    #logging.debug(network)
 
 
-def input_worker(done_event, network):
+def input_worker(done_event, network, cmdargs):
   parser = argparse.ArgumentParser('')
   subparsers = parser.add_subparsers(dest='subparser')
   exit_parser = subparsers.add_parser('exit')
+  getstate_parser = subparsers.add_parser('getstate')
+  balance_parser = subparsers.add_parser('balance')
   route_parser = subparsers.add_parser('route')
   route_parser.add_argument('command', choices=['add', 'delete'])
   route_parser.add_argument('node')
@@ -293,6 +437,10 @@ def input_worker(done_event, network):
       args = parser.parse_args(cmd)
       if args.subparser == 'exit':
         done_event.set()
+      elif args.subparser == 'getstate':
+        if not cmdargs.print_stdout:
+          print network
+        logging.debug(network)
       elif args.subparser == 'route':
         route_change = update_pb2.RouteChange()
 
@@ -313,8 +461,10 @@ def input_worker(done_event, network):
         message = route_change_len + route_change_str
         res = network.send_from_node(args.node, message)
         logging.debug(res)
+      elif args.subparser == 'balance':
+        balance_network(network)
     except:
-      traceback.print_exc()
+      #traceback.print_exc()
       pass
 
 
@@ -343,7 +493,7 @@ def main():
   threads = []
   t1 = threading.Thread(target=server_worker, args=[done_event, network, args])
   t2 = threading.Thread(target=network_refresh_worker, args=[done_event, network])
-  t3 = threading.Thread(target=input_worker, args=[done_event, network])
+  t3 = threading.Thread(target=input_worker, args=[done_event, network, args])
   threads.extend([t1, t2, t3])
 
   for t in threads:
