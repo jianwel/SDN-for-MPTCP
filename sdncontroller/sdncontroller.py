@@ -24,7 +24,7 @@ CONTROLLER_IP = ''
 CONTROLLER_PORT = 36502
 
 NODE_EXPIRE_TIME = 5.0
-NETWORK_REFRESH_ITVL = 5
+NETWORK_REFRESH_ITVL = 3
 
 DEBUG_FILEPATH = '/tmp/sdncontroller.txt'
 
@@ -357,7 +357,6 @@ def receive_worker(conn, addr, network, done_event):
       logging.debug('Report from {0}: time = {1}'.format(alias, report.timestamp))
 
       network.update_node(alias, addr[0], report, conn)
-      network.refresh_node_list()
 
     except socket.error, exc:
       logging.debug('Lost connection from {0}'.format(addr))
@@ -388,11 +387,11 @@ def server_worker(done_event, network, args):
       logging.debug('Got connection from {0}'.format(addr))
       t = threading.Thread(target=receive_worker, args=[conn, addr, network, done_event])
       t.start()
-      clients.append((t, conn, addr))
+      clients.append((t, conn))
 
     # Refresh client list for alive threads.
     done_threads = []
-    for t, conn, _ in clients:
+    for t, conn in clients:
       if not t.isAlive():
         conn.close()
         done_threads.append(t)
@@ -401,7 +400,7 @@ def server_worker(done_event, network, args):
     time.sleep(0)
 
   # Refresh network.
-  for t, conn, _ in clients:
+  for t, conn in clients:
     conn.close()
     t.join()
 
@@ -410,7 +409,6 @@ def network_refresh_worker(done_event, network):
   while not done_event.is_set():
     time.sleep(NETWORK_REFRESH_ITVL)
     network.refresh_node_list()
-    #logging.debug(network)
 
 
 def input_worker(done_event, network, cmdargs):
@@ -436,8 +434,6 @@ def input_worker(done_event, network, cmdargs):
       if args.subparser == 'exit':
         done_event.set()
       elif args.subparser == 'getstate':
-        if not cmdargs.print_stdout:
-          print network
         logging.debug(network)
       elif args.subparser == 'route':
         route_change = update_pb2.RouteChange()
