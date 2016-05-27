@@ -31,8 +31,7 @@ DEBUG_FILEPATH = '/tmp/sdncontroller.txt'
 ''' Network class defining a graph of nodes '''
 class Network:
   def __init__(self):
-    self.nodes = []
-    self.nodes_dict = {} # Alias -> Node instance
+    self.nodes = {} # Alias -> Node instance
     self.nodes_lock = threading.Lock()
 
   def __str__(self):
@@ -41,21 +40,22 @@ class Network:
   def update_node(self, alias, ip, report, socket):
     self.nodes_lock.acquire(True)
 
-    if alias in self.nodes_dict:
-      node = self.nodes_dict[alias]
+    routes = {}
+    if report.HasField('routes'):
+      routes = json.loads(report.routes)
+
+    interfaces = {}
+    if report.HasField('interfaces'):
+      interfaces = json.loads(report.interfaces)
+
+    if alias in self.nodes:
+      node = self.nodes[alias]
       node.last_update = time.time()
+      node.routes = routes;
+      node.interfaces = interfaces;
     else:
-      routes = {}
-      if report.HasField('routes'):
-        routes = json.loads(report.routes)
-
-      interfaces = {}
-      if report.HasField('interfaces'):
-        interfaces = json.loads(report.interfaces)
-
       node = Node(alias, ip, self, socket, routes, interfaces)
-      self.nodes.append(node)
-      self.nodes_dict[alias] = node
+      self.nodes[alias] = node
 
     if len(report.neighbors) > 0:
       for neighbor in report.neighbors:
@@ -68,8 +68,8 @@ class Network:
           neighbor_interface = neighbor.interface
 
         # Neighbor must already be known by controller.
-        if neighbor_alias in self.nodes_dict:
-          neighbor_node = self.nodes_dict[neighbor_alias]
+        if neighbor_alias in self.nodes:
+          neighbor_node = self.nodes[neighbor_alias]
           node.update_neighbor(neighbor_node, neighbor_interface, neighbor.ip, float(neighbor.rtt))
 
     self.nodes_lock.release()
@@ -77,15 +77,14 @@ class Network:
   def refresh_node_list(self):
     self.nodes_lock.acquire(True)
 
-    if len(self.nodes) < 1:
+    if len(self.nodes.keys()) < 1:
       self.nodes_lock.release()
       return
 
-    nodes_expired = []
-
+    nodes_expired = {}
     # Expire nodes that do not appear in any neighbor's list
     curtime = time.time()
-    for node in self.nodes:
+    for alias, node in self.nodes.iteritems():
       if curtime - node.last_update >= NODE_EXPIRE_TIME:
         found = False
         for neighbor in node.neighbors:
@@ -93,26 +92,25 @@ class Network:
             found = True
             break
         if not found:
-          nodes_expired.append(node)
+          nodes_expired[alias] = node
 
-    for node in nodes_expired:
-      self.nodes.remove(node)
-      del self.nodes_dict[node.alias]
+    for alias in nodes_expired:
+      del self.nodes[alias]
 
     self.nodes_lock.release()
 
   def set_node_lost(self, alias):
     self.nodes_lock.acquire(True)
-    if alias in self.nodes_dict:
-      self.nodes_dict[alias].socket = None  # closed by server worker
+    if alias in self.nodes:
+      self.nodes[alias].socket = None  # closed by server worker
     self.nodes_lock.release()
 
   def debug_print(self):
     self.nodes_lock.acquire(True)
 
-    graph = 'Network (Size ' + str(len(self.nodes)) + ')\n'
+    graph = 'Network (Size ' + str(len(self.nodes.keys())) + ')\n'
 
-    for node in self.nodes:
+    for node in self.nodes.itervalues():
       graph += '%s -> (%d)\n' % (str(node), len(node.neighbors))
       for neighbor, link in node.neighbors.iteritems():
         graph += '  %s \t %s\t rtt=%.6f\n' % (str(neighbor), str(link), link.rtt)
@@ -125,9 +123,9 @@ class Network:
     res = ''
 
     self.nodes_lock.acquire(True)
-    if alias in self.nodes_dict:
+    if alias in self.nodes:
       try:
-        self.nodes_dict[alias].socket.send(message)
+        self.nodes[alias].socket.send(message)
         res = 'Sent message to ' + alias + '.'
       except:
         res = 'Failed to send message to ' + alias + '.'
@@ -199,16 +197,16 @@ def find_best_path(network, Q, start, end):
     node.hop_count = 0
     node.gain = 0
   start.gain = float('inf')
-  
+
   # Create max heap of unvisited nodes
   unvisited = [(-n.gain, n) for n in network.nodes]
   heapq.heapify(unvisited)
-  
+
   while len(unvisited) > 0:
     next_pair = heapq.heappop(unvisited)
     current = next_pair[1]
     current.visited = True
-    
+
     for neighbor, link in current.neighbors.iteritems():
       if neighbor.visited:
         continue
@@ -218,11 +216,11 @@ def find_best_path(network, Q, start, end):
         neighbor.gain = new_gain
         neighbor.hop_count = new_hop_count
         neighbor.previous = current
-        
+
     # Rebuild max heap
-    unvisited = [(-n.gain, n) for n in network.nodes if not n.visited]
+    unvisited = [(-n.gain, n) for n in network.nodes.itervalues() if not n.visited]
     heapq.heapify(unvisited)
-    
+
   # Build route backwards from destination
   route = [end]
   current = end
@@ -237,9 +235,9 @@ def balance_network(network):
   #  2. Group flows by destination
   #  3. For each group in random order, for each flow in random order, find best route r = {(source, ..., destination)}
   #  4. Apply route changes to nodes
-  
+
   logging.debug("--- Begin flow routing ---")
-  
+
   #TODO: Parse flow table to obtain flows
   class Flow:
     def __init__(self, id, start, end):
@@ -247,36 +245,36 @@ def balance_network(network):
       self.start = start
       self.end = end
   flows = []
-  
+
   #TODO: Find maximum link capacity in network
   c_max = 1.0
-  
+
   flow_routes = {}
   flow_route_Q = {}      # Flow instance -> Q(r)
   edge_flows = {}        # Edge -> Array of flows
   edge_capacities = {}   # Edge -> Capacity
   Q = {}                 # Edge -> Q(e)
-  
+
   # Initialize Q
-  for node in network.nodes:
+  for node in network.nodes.itervalues():
     for neighbor, link in node.neighbors.iteritems():
       Q[edge_key(node, neighbor)] = link.capacity / c_max
-  
+
   #TODO: Group flows by destination and choose randomly
   for i in range(len(flows)):
     cur_flow = flows[i]
-    
+
     # Update Q for next flow
     if i > 0:
       Q = {}
-      for node in network.nodes:
+      for node in network.nodes.itervalues():
         for neighbor, link in node.neighbors.iteritems():
           key = edge_key(node, neighbor)
           if key in Q:
             continue  # Q(e) already set
-          
+
           edge_capacities[key] = capacity
-          
+
           # Compute remaining capacity from other flows using this edge
           utilization = 0
           flow_count = 1  # If new flow uses this edge
@@ -285,23 +283,23 @@ def balance_network(network):
               utilization += flow_route_Q[key]
               flow_count += 1
           q_remaining = capacity - utilization
-          
+
           if flow_count > 1:
             fair_share = capacity / (c_max * flow_count)
           else:
             fair_share = capacity / c_max
-            
+
           Q[key] = max(q_remaining, fair_share)
-          
+
     # Find best path using Q
     route, route_Q = find_best_path(network, Q, cur_flow.start, cur_flow.end)
     flow_routes[cur_flow] = route
-    
+
     # Update flow utilization and edge assignments
     flow_route_Q[cur_flow] = route_Q
     for i in range(len(route) - 1):
       key = edge_key(route[i], route[i+1])
-      
+
       # Update Q(r) of other flows if we introduce a new bottleneck by adding this flow to the edge
       if key in edge_flows:
         num_flows = len(edge_flows[key]) + 1
@@ -309,7 +307,7 @@ def balance_network(network):
         for flow in edge_flows[key]:
           if fair_share < flow_route_Q[flow]:
             flow_route_Q[flow] = fair_share
-      
+
       # Add own flow to route
       if key in edge_flows:
         edge_flows[key] += [cur_flow]
@@ -317,7 +315,7 @@ def balance_network(network):
         edge_flows[key] = [cur_flow]
 
   #TODO: Process flow_routes for each flow and update routing tables
-  
+
   logging.debug("--- Flow routing complete ---")
 
 
