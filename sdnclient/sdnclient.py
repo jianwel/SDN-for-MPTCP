@@ -346,19 +346,15 @@ def flow_worker(done_event, args):
   pcap_file = 'tcpdump.pcap'
   stats_file = 'stats.dat'
 
-  output_dir = args.output_dir
-  if not os.path.isabs(output_dir):
-    output_dir = os.path.abspath(os.path.join(file_path, output_dir))
-
-  if not os.path.isdir(output_dir):
-    os.mkdir(output_dir)
+  if not os.path.isdir(args.output_dir):
+    os.mkdir(args.output_dir)
 
   while not done_event.is_set():
     try:
       # Run tcpdump.
       command = ('sudo tcpdump -i any -s 96 -n -B 4096 '
              '-w {pcap_file} -c {packet_count} tcp').format(
-        pcap_file=os.path.join(output_dir, pcap_file),
+        pcap_file=os.path.join(args.output_dir, pcap_file),
         packet_count=args.packet_count)
       with open(os.devnull, 'w') as devnull:
         ps = subprocess.Popen(shlex.split(command), stderr=subprocess.PIPE)
@@ -371,11 +367,11 @@ def flow_worker(done_event, args):
 
       # Run captcp.
       json_obj = {}
-      stats_path = os.path.join(output_dir, stats_file)
+      stats_path = os.path.join(args.output_dir, stats_file)
       if packets_captured > 0:
         with open(stats_path, 'w') as stat, open(os.devnull, 'w') as devnull:
           command = ('sudo captcp statistic {pcap_file}').format(
-            pcap_file=os.path.join(output_dir, pcap_file))
+            pcap_file=os.path.join(args.output_dir, pcap_file))
           ps = subprocess.Popen(shlex.split(command), stderr=devnull,
             stdout=subprocess.PIPE)
 
@@ -430,7 +426,7 @@ def flow_worker(done_event, args):
               camelcased = pascalcased[0].lower() + pascalcased[1:]
               current['dst2src'][camelcased] = fields[3].strip()
 
-      with open(os.path.join(output_dir, args.json_file), 'w') as json_file:
+      with open(os.path.join(args.output_dir, args.json_file), 'w') as json_file:
         json.dump(json_obj, json_file, sort_keys = True, indent = 4, ensure_ascii = False)
         if os.path.exists(stats_path):
           os.remove(stats_path)
@@ -449,7 +445,7 @@ def main():
   parser.add_argument('-d', '--debug-file', default=DEBUG_FILEPATH, help='debug file')
   parser.add_argument('-D', '--disable-debug', action='store_true', help='disable debug logging')
   parser.add_argument('-P', '--print-stdout', action='store_true', help='print debug info to stdout')
-  parser.add_argument('-o', '--output-dir', default='../output', help='captcp output directory')
+  parser.add_argument('-o', '--output-dir', default='output', help='captcp output directory')
   parser.add_argument('-j', '--json-file', default='captcp.json', help='captcp json file')
   parser.add_argument('-a', '--alias', default='', help='unique alias in network')
   parser.add_argument('-t', '--run-time', type=int, default=2,
