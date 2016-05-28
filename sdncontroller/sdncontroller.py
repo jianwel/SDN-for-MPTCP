@@ -14,6 +14,7 @@ import logging
 import shlex
 import traceback
 import heapq
+import re
 
 file_path = os.path.dirname(sys.argv[0])
 protobuf_path = os.path.abspath(os.path.join(file_path, '../protobuf'))
@@ -40,6 +41,10 @@ class Network:
   def update_node(self, alias, ip, report, socket):
     self.nodes_lock.acquire(True)
 
+    flows = {}
+    if report.HasField('flows'):
+      flows = json.loads(report.flows)
+
     routes = {}
     if report.HasField('routes'):
       routes = json.loads(report.routes)
@@ -51,10 +56,11 @@ class Network:
     if alias in self.nodes:
       node = self.nodes[alias]
       node.last_update = time.time()
+      node.flows = flows;
       node.routes = routes;
       node.interfaces = interfaces;
     else:
-      node = Node(alias, ip, self, socket, routes, interfaces)
+      node = Node(alias, ip, self, socket, flows, routes, interfaces)
       self.nodes[alias] = node
 
     if len(report.neighbors) > 0:
@@ -138,12 +144,13 @@ class Network:
 
 ''' Node class representing a client in the network '''
 class Node:
-  def __init__(self, alias, ip, network, socket, routes, interfaces):
+  def __init__(self, alias, ip, network, socket, flows, routes, interfaces):
     self.alias = alias
     self.ip = ip  # endpoint in node <-> controller connection
     self.neighbors = {}  # Node instance -> Link instance
     self.network = network
     self.socket = socket
+    self.flows = flows
     self.routes = routes
     self.interfaces = interfaces
     self.last_update = time.time()
@@ -191,7 +198,7 @@ def find_best_path(network, Q, start, end):
     return None
 
   # Initialize network
-  for node in network.nodes:
+  for node in network.nodes.itervalues():
     node.visited = False
     node.previous = None
     node.hop_count = 0
@@ -199,7 +206,7 @@ def find_best_path(network, Q, start, end):
   start.gain = float('inf')
 
   # Create max heap of unvisited nodes
-  unvisited = [(-n.gain, n) for n in network.nodes]
+  unvisited = [(-n.gain, n) for n in network.nodes.itervalues()]
   heapq.heapify(unvisited)
 
   while len(unvisited) > 0:
@@ -240,18 +247,42 @@ def balance_network(network):
 
   #TODO: Parse flow table to obtain flows
   class Flow:
-    def __init__(self, id, start, end):
-      self.id = id
+    def __init__(self, start, end):
       self.start = start
       self.end = end
   flows = []
+
+#  flows = {} # Destination -> List of Flows
+#
+#  ip_addrs = {} # IP address -> alias 
+#  for node in network.nodes.itervalues():
+#    for name, iface in node.interfaces.iteritems():
+#      ip_addrs[iface['addr']] = node
+#
+#  for node in network.nodes.itervalues():
+#    for connection in node.flows['connections']:
+#      for field in ['src2dst', 'dst2src']:
+#        m = re.match(r'(.*):\d+ -> (.*):\d+', connection[field]['flow'])
+#        if m:
+#           src = m.group(1)
+#           dst = m.group(2)
+#           if dst not in flows:
+#             flows[dst] = [Flow(src, dst)]
+#           else:
+#             found = False
+#             for flow in flows[dst]:
+#               if flow.start == src:
+#                 found = True
+#
+#             if not found:
+#               flows[dst] += [Flow(src, dst)]
 
   #TODO: Find maximum link capacity in network
   c_max = 1.0
 
   flow_routes = {}
   flow_route_Q = {}      # Flow instance -> Q(r)
-  edge_flows = {}        # Edge -> Array of flows
+  edge_flows = {}        # Edge -> List of flows
   edge_capacities = {}   # Edge -> Capacity
   Q = {}                 # Edge -> Q(e)
 
