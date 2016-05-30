@@ -78,14 +78,14 @@ class Network:
 
         neighbor_capacity = 1.0
         if neighbor.HasField('capacity'):
-          neighbor_capacity = neighbor.capacity
+          neighbor_capacity = float(neighbor.capacity)
           if neighbor_capacity > self.c_max:
             self.c_max = neighbor_capacity
 
         # Neighbor must already be known by controller.
         if neighbor_alias in self.nodes:
           neighbor_node = self.nodes[neighbor_alias]
-          node.update_neighbor(neighbor_node, neighbor_interface, neighbor.ip, float(neighbor.rtt), float(neighbor.capacity))
+          node.update_neighbor(neighbor_node, neighbor_interface, neighbor.ip, float(neighbor.rtt), neighbor_capacity)
 
     self.nodes_lock.release()
 
@@ -143,6 +143,7 @@ class Network:
         graph += '      {neighbor}\t{link}\t{cap:.2f}\t{rtt:.6f}\n'.format(
           neighbor=neighbor,
           link=link,
+          cap=link.capacity,
           rtt=link.rtt)
 
       if 'connections' in node.flows:
