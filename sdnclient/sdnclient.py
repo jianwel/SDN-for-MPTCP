@@ -36,7 +36,7 @@ CONTROLLER_UPDATE_INTERVAL = 3.0
 
 DEBUG_FILEPATH = '/tmp/sdnclient.log'
 
-neighbors = {} # IP -> {alias, interface, last_refresh, rtt, response_count}
+neighbors = {} # IP -> {alias, interface, capacity, last_refresh, rtt, response_count}
 
 ''' Return True if string is a number.
 '''
@@ -46,6 +46,30 @@ def is_number(s):
     return True
   except ValueError:
     return False
+
+
+''' Return the capacity of the given interface in kbps
+'''
+def get_link_capacity(ifname):
+  if ifname[:3] == "eth":
+    # Get interface speed using ethtool
+    ps = subprocess.Popen(('ethtool', ifname), stdout=subprocess.PIPE)
+    output = subprocess.check_output(('grep', 'Speed'), stdin=ps.stdout)
+    ps.wait()
+
+    speed_str = output.split()[1]
+    value_str = speed_str[:speed_str.find('b/s') - 1]
+    units = speed_str[len(value_str):]
+
+    if units == "Mb/s":
+      return float(value_str) * 1000
+    else:
+      return float(value_str)
+
+  elif ifname[:4] == "wlan":
+    return 56000  # Assume 56Mb/s for IEEE802.11b
+
+  return 0
 
 
 ''' Construct and return routing table object.
@@ -79,7 +103,7 @@ def get_interfaces():
 '''
 def handle_recv_msg(msg, host_addr, own_addrs, bcast_iface):
   if host_addr not in neighbors:
-    neighbors[host_addr] = {'alias': '', 'interface': bcast_iface['name'], 'last_refresh': time.time(), 'rtt': 0.0, 'response_count': 0}
+    neighbors[host_addr] = {'alias': '', 'interface': bcast_iface['name'], 'capacity': get_link_capacity(bcast_iface['name']), 'last_refresh': time.time(), 'rtt': 0.0, 'response_count': 0}
   else:
     neighbors[host_addr]['last_refresh'] = time.time()
 
@@ -252,6 +276,8 @@ def update_worker(done_event, args):
         neighbor.alias = neighbors[ip]['alias']
       if len(neighbors[ip]['interface']) > 0:
         neighbor.interface = neighbors[ip]['interface']
+      if neighbors[ip]['capacity'] != '0':
+        neighbor.capacity = '{:6f}'.format(neighbors[ip]['capacity'])
 
     # Add flow info.
     json_file_path = os.path.join(args.output_dir, args.json_file)

@@ -36,6 +36,7 @@ class Network:
   def __init__(self):
     self.nodes = {} # Alias -> Node instance
     self.nodes_lock = threading.Lock()
+    self.c_max = 0.0
 
   def __str__(self):
     return self.debug_print()
@@ -75,10 +76,16 @@ class Network:
         if neighbor.HasField('interface'):
           neighbor_interface = neighbor.interface
 
+        neighbor_capacity = 1.0
+        if neighbor.HasField('capacity'):
+          neighbor_capacity = neighbor.capacity
+          if neighbor_capacity > self.c_max:
+            self.c_max = neighbor_capacity
+
         # Neighbor must already be known by controller.
         if neighbor_alias in self.nodes:
           neighbor_node = self.nodes[neighbor_alias]
-          node.update_neighbor(neighbor_node, neighbor_interface, neighbor.ip, float(neighbor.rtt))
+          node.update_neighbor(neighbor_node, neighbor_interface, neighbor.ip, float(neighbor.rtt), float(neighbor.capacity))
 
     self.nodes_lock.release()
 
@@ -133,7 +140,7 @@ class Network:
       graph += '    Neighbors ({count})\n'.format(
         count=len(node.neighbors.keys()))
       for neighbor, link in node.neighbors.iteritems():
-        graph += '      {neighbor}\t{link}\t{rtt:.6f}\n'.format(
+        graph += '      {neighbor}\t{link}\t{cap:.2f}\t{rtt:.6f}\n'.format(
           neighbor=neighbor,
           link=link,
           rtt=link.rtt)
@@ -201,12 +208,12 @@ class Node:
     self.interfaces = interfaces
     self.last_update = time.time()
 
-  def update_neighbor(self, neighbor_node, interface, to_ip, rtt):
+  def update_neighbor(self, neighbor_node, interface, to_ip, rtt, capacity):
     if neighbor_node in self.neighbors:
       link = self.neighbors[neighbor_node]
       link.rtt = rtt
     else:
-      link = Link(interface, to_ip, rtt)
+      link = Link(interface, to_ip, rtt, capacity)
       self.neighbors[neighbor_node] = link
 
   def has_neighbor(self, node):
@@ -223,11 +230,11 @@ class Node:
 
 ''' Link class defining statistics for a neighboring link '''
 class Link:
-  def __init__(self, interface, to_ip, rtt):
+  def __init__(self, interface, to_ip, rtt, capacity):
     self.interface = interface
     self.to_ip = to_ip
     self.rtt = rtt
-    self.capacity = 1.0  #TODO: Obtain from clients
+    self.capacity = capacity
 
   def __str__(self):
     return '%s via %s' % (self.to_ip, self.interface)
@@ -323,8 +330,7 @@ def balance_network(network):
 #             if not found:
 #               flows[dst] += [Flow(src, dst)]
 
-  #TODO: Find maximum link capacity in network
-  c_max = 1.0
+  c_max = network.c_max
 
   flow_routes = {}
   flow_route_Q = {}      # Flow instance -> Q(r)
