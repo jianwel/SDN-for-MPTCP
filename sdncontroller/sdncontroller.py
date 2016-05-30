@@ -15,6 +15,8 @@ import shlex
 import traceback
 import heapq
 import re
+import decimal
+from decimal import Decimal as D
 
 file_path = os.path.dirname(sys.argv[0])
 protobuf_path = os.path.abspath(os.path.join(file_path, '../protobuf'))
@@ -112,14 +114,58 @@ class Network:
     self.nodes_lock.release()
 
   def debug_print(self):
-    self.nodes_lock.acquire(True)
+    class Flow:
+      def __init__(self, ep_a, ep_b, bps):
+        self.ep_a = ep_a
+        self.ep_b = ep_b
+        self.bps = bps
+      def __repr__(self):
+        return 'Flow({ep_a}, {ep_b}, {bps} bit/s)'.format(
+          ep_a=self.ep_a,
+          ep_b=self.ep_b,
+          bps=self.bps)
 
-    graph = 'Network (Size ' + str(len(self.nodes.keys())) + ')\n'
+    self.nodes_lock.acquire(True)
+    graph = 'Network ({size})\n'.format(size=len(self.nodes.keys()))
 
     for node in self.nodes.itervalues():
-      graph += '%s -> (%d)\n' % (str(node), len(node.neighbors))
+      graph += '  {node}\n'.format(node=node)
+      graph += '    Neighbors ({count})\n'.format(
+        count=len(node.neighbors.keys()))
       for neighbor, link in node.neighbors.iteritems():
-        graph += '  %s \t %s\t rtt=%.6f\n' % (str(neighbor), str(link), link.rtt)
+        graph += '      {neighbor}\t{link}\t{rtt:.6f}\n'.format(
+          neighbor=neighbor,
+          link=link,
+          rtt=link.rtt)
+
+      if 'connections' in node.flows:
+        flows = []
+        for connection in node.flows['connections']:
+          for field in ['src2dst', 'dst2src']:
+            m = re.match(r'(.*):\d+ -> (.*):\d+', connection[field]['flow'])
+            n = re.match(r'(.*) bit/s', connection[field]['linkLayerThroughput'])
+            if m and n:
+              ep_a = m.group(1)
+              ep_b = m.group(2)
+              ep_first = (ep_a if ep_a < ep_b else ep_b)
+              ep_second = (ep_b if ep_a < ep_b else ep_a)
+              bps = D(n.group(1))
+              found = False
+              for flow in flows:
+                if flow.ep_a == ep_first and flow.ep_b == ep_second:
+                  flow.bps += bps
+                  found = True
+                  break
+
+              if not found:
+                flows.append(Flow(ep_first, ep_second, bps))
+
+        graph += '    Flows ({count})\n'.format(count=len(flows))
+        for flow in flows:
+          graph += '      {ep_a}\t{ep_b}\t{bps} bit/s\n'.format(
+            ep_a=flow.ep_a,
+            ep_b=flow.ep_b,
+            bps=flow.bps)
 
     self.nodes_lock.release()
 
@@ -490,7 +536,6 @@ def input_worker(done_event, network, cmdargs):
       elif args.subparser == 'balance':
         balance_network(network)
     except:
-      #traceback.print_exc()
       pass
 
 
