@@ -500,8 +500,8 @@ def input_worker(done_event, network, cmdargs):
   parser = argparse.ArgumentParser('')
   subparsers = parser.add_subparsers(dest='subparser')
   exit_parser = subparsers.add_parser('exit')
-  getstate_parser = subparsers.add_parser('getstate')
-  balance_parser = subparsers.add_parser('balance')
+  getstate_parser = subparsers.add_parser('state')
+  balance_parser = subparsers.add_parser('run')
   route_parser = subparsers.add_parser('route')
   route_parser.add_argument('command', choices=['add', 'delete'])
   route_parser.add_argument('node')
@@ -518,7 +518,7 @@ def input_worker(done_event, network, cmdargs):
       args = parser.parse_args(cmd)
       if args.subparser == 'exit':
         done_event.set()
-      elif args.subparser == 'getstate':
+      elif args.subparser == 'state':
         logging.debug(network)
       elif args.subparser == 'route':
         route_change = update_pb2.RouteChange()
@@ -540,7 +540,7 @@ def input_worker(done_event, network, cmdargs):
         message = route_change_len + route_change_str
         res = network.send_from_node(args.node, message)
         logging.debug(res)
-      elif args.subparser == 'balance':
+      elif args.subparser == 'run':
         balance_network(network)
     except:
       pass
