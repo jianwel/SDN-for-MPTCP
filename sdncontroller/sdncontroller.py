@@ -133,6 +133,12 @@ class Network:
           bps=self.bps)
 
     self.nodes_lock.acquire(True)
+
+    ip_addrs = {} # IP address -> alias
+    for node in self.nodes.itervalues():
+      for name, iface in node.interfaces.iteritems():
+        ip_addrs[iface['addr']] = node.alias
+
     graph = 'Network ({size})\n'.format(size=len(self.nodes.keys()))
 
     for node in self.nodes.itervalues():
@@ -154,7 +160,13 @@ class Network:
             n = re.match(r'(.*) bit/s', connection[field]['linkLayerThroughput'])
             if m and n:
               ep_a = m.group(1)
+              if ep_a in ip_addrs:
+                ep_a = ip_addrs[ep_a]
+
               ep_b = m.group(2)
+              if ep_b in ip_addrs:
+                ep_b = ip_addrs[ep_b]
+
               ep_first = (ep_a if ep_a < ep_b else ep_b)
               ep_second = (ep_b if ep_a < ep_b else ep_a)
               bps = D(n.group(1))
